@@ -1631,10 +1631,39 @@ function createStickyElement(page, pageIdx, st){
     const rect = canvas.getBoundingClientRect();
     return { x:(e.clientX-rect.left)*(canvas.width/rect.width), y:(e.clientY-rect.top)*(canvas.height/rect.height) };
   }
+  const TOUCH_HEADER_GRACE = 28; // 화면 기준 px(줌과 무관) - 문서를 축소해서 볼 때 40px짜리 헤더가 화면상 몇 px로 눌려버려서
+                                  // 손가락이 정확히 헤더를 못 짚고 캔버스 맨 위쪽을 짚는 문제를 보정하기 위한 여유 구간
   canvas.addEventListener('pointerdown', (e)=>{
     // 손가락(touch)은 그리기 대상이 아님 - 팜 리젝션. 캡처/전파차단도 하지 않아야
     // 스티커 위에서 손가락이 닿아도 바깥의 두 손가락 핀치 확대/축소·화면 이동이 정상 동작함.
-    if(e.pointerType === 'touch') return;
+    if(e.pointerType === 'touch'){
+      const rect = canvas.getBoundingClientRect();
+      npLog('[canvas]touch pointerdown, y-rect.top='+(e.clientY-rect.top).toFixed(0));
+      if(e.clientY - rect.top < TOUCH_HEADER_GRACE){
+        // 실제로는 헤더(또는 버튼)를 누르려 한 터치로 간주 - 축소된 화면에서 얇아진 헤더를 놓친 경우 구제
+        e.stopPropagation();
+        const btnsRect = btns.getBoundingClientRect();
+        if(e.clientX >= btnsRect.left){
+          let target = null, bestDist = Infinity;
+          [maxBtn, minBtn, delBtn].forEach(b=>{
+            const r = b.getBoundingClientRect();
+            const cx = (r.left+r.right)/2, cy = (r.top+r.bottom)/2;
+            const d = Math.hypot(e.clientX-cx, e.clientY-cy);
+            if(d < bestDist){ bestDist = d; target = b; }
+          });
+          npLog('[canvas]grace-zone -> button redirect: '+(target&&target.title));
+          if(target) target.click();
+        } else {
+          npLog('[canvas]grace-zone -> header drag redirect');
+          head.dispatchEvent(new PointerEvent('pointerdown', {
+            pointerId:e.pointerId, pointerType:e.pointerType,
+            clientX:e.clientX, clientY:e.clientY, bubbles:true, cancelable:true
+          }));
+        }
+        return;
+      }
+      return;
+    }
     e.stopPropagation();
     stDrawing = true; canvas.setPointerCapture(e.pointerId);
     stLast = stCoord(e);
