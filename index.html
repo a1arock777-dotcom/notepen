@@ -287,6 +287,17 @@
     background:rgba(0,0,0,0.4); border-radius:6px; display:flex; align-items:center; justify-content:center;
     color:white; font-size:16px;
   }
+
+  /* ---------- 노트 위에 붙이는 새 노트 바로가기 아이콘 ---------- */
+  .page-shortcut{
+    position:absolute; z-index:56; width:40px; height:40px; border-radius:10px;
+    background:rgba(255,255,255,0.95); border:1px solid rgba(0,0,0,0.15); box-shadow:0 3px 8px rgba(0,0,0,0.22);
+    display:flex; align-items:center; justify-content:center; font-size:20px;
+    cursor:pointer; touch-action:none; user-select:none; transition:transform 0.12s, box-shadow 0.12s;
+  }
+  .page-shortcut.armed{
+    transform:scale(1.18); box-shadow:0 0 0 3px var(--accent), 0 6px 16px rgba(0,0,0,0.35);
+  }
   /* ---------- Layers panel ---------- */
   #layers-panel{
     position:fixed; top:52px; right:0; bottom:0; width:250px; max-width:80vw; background:var(--surface);
@@ -487,6 +498,7 @@
       <div class="divider"></div>
       <button class="icon-btn" id="btn-addpage" title="페이지 추가">＋📄</button>
       <button class="icon-btn" id="btn-image" title="이미지 추가">🖼️</button>
+      <button class="icon-btn" id="btn-add-shortcut" title="새 노트 바로가기 아이콘 추가">📄</button>
     </div>
     <input type="file" accept="image/*" class="hidden-input" id="image-input">
     <div class="canvas-wrap" id="canvas-wrap">
@@ -1041,7 +1053,7 @@ document.getElementById('pdf-input').onchange = async (e)=>{
     for(let i=1;i<=doc.numPages;i++){
       const p = await doc.getPage(i);
       const vp = p.getViewport({scale:2});
-      pages.push({ width: vp.width, height: vp.height, layers:[ makeLayer('레이어 1') ], images:[] });
+      pages.push({ width: vp.width, height: vp.height, layers:[ makeLayer('레이어 1') ], images:[], shortcuts:[] });
     }
     const nb = {
       id: uid(), title: file.name.replace(/\.pdf$/i,''), type:'pdf',
@@ -1057,7 +1069,7 @@ document.getElementById('pdf-input').onchange = async (e)=>{
   }
 };
 function makeLayer(name){ return { name, visible:true, strokes:[], masks:[] }; }
-function makeBlankPage(bgColor, lined){ return { width:1000, height:1350, bgColor: bgColor || '#ffffff', lined: !!lined, layers:[ makeLayer('레이어 1') ], images:[] }; }
+function makeBlankPage(bgColor, lined){ return { width:1000, height:1350, bgColor: bgColor || '#ffffff', lined: !!lined, layers:[ makeLayer('레이어 1') ], images:[], shortcuts:[] }; }
 
 /* ================= Editor: open/close ================= */
 const libraryEl = document.getElementById('library');
@@ -1170,6 +1182,8 @@ function buildBlockContent(block, idx){
 
   if(!page.images) page.images = [];
   page.images.forEach(im=> block.appendChild(createImageElement(page, idx, im)));
+  if(!page.shortcuts) page.shortcuts = [];
+  page.shortcuts.forEach(sc=> block.appendChild(createShortcutElement(page, idx, sc)));
 }
 function ensureBlockBuilt(idx){
   const block = stackEl.querySelector(`.page-block[data-page-idx="${idx}"]`);
@@ -1357,6 +1371,7 @@ let drawing = false;
 let currentStroke = null;
 let maskStart = null;
 let highlightSnapshot = null; // 형광펜 그리는 도중 겹치는 부분이 진해지지 않도록, 획 시작 시점의 캔버스를 저장해두고 매번 복원 후 전체 경로를 한 번에 다시 그림
+let placingShortcut = false; // true인 동안은 다음 터치/클릭 한 번으로 노트 위에 바로가기 아이콘을 배치함
 let previewMaskEl = null;
 
 // 두 손가락 핀치 확대/축소 + 두 번 톡톡(더블탭) 폭 맞춤용 상태
@@ -1605,8 +1620,122 @@ function createImageElement(page, pageIdx, im){
   return el;
 }
 
+/* ---------- 노트 위에 붙이는 새 노트 바로가기 아이콘 ---------- */
+// 가볍게 탭하면 새 노트 만들기 화면이 열리고, 꾹 눌러서(길게 누르기) 든 다음 옮기면 위치가 이동됨.
+// 이미지 드래그와 동일하게 setPointerCapture 대신 document 리스너 + pointerId 매칭 방식을 사용
+// (일부 모바일 브라우저에서 포인터 캡처가 불안정한 문제를 피하기 위함).
+function createShortcutElement(page, pageIdx, sc){
+  const el = document.createElement('div');
+  el.className = 'page-shortcut';
+  el.dataset.id = sc.id;
+  el.textContent = '📄';
+
+  function applyGeom(){
+    el.style.left = sc.x + 'px';
+    el.style.top = sc.y + 'px';
+  }
+  applyGeom();
+
+  const LONG_PRESS_MS = 450;
+  const MOVE_THRESHOLD = 8; // 화면(px) 기준 - 이 이상 움직이면 탭이 아니라 이동 의도로 간주
+  const SZ = 40;
+  let pressId = null, pressStart = null, longPressTimer = null, armed = false, moved = false;
+
+  function clearPress(){
+    if(longPressTimer){ clearTimeout(longPressTimer); longPressTimer = null; }
+    armed = false;
+    el.classList.remove('armed');
+    document.removeEventListener('pointermove', onMove);
+    document.removeEventListener('pointerup', onUp);
+    document.removeEventListener('pointercancel', onCancel);
+    pressId = null;
+  }
+  function onMove(e){
+    if(e.pointerId !== pressId) return;
+    e.stopPropagation();
+    const dx = e.clientX - pressStart.x, dy = e.clientY - pressStart.y;
+    if(!armed){
+      if(Math.hypot(dx,dy) > MOVE_THRESHOLD){
+        // 길게 누르는 시간을 다 채우기 전이라도, 충분히 움직이면 바로 이동으로 간주해서 반응이 굼뜨지 않게 함
+        armed = true;
+        el.classList.add('armed');
+        if(longPressTimer){ clearTimeout(longPressTimer); longPressTimer = null; }
+      } else {
+        return;
+      }
+    }
+    moved = true;
+    const ndx = dx/zoom, ndy = dy/zoom;
+    sc.x = Math.max(0, Math.min(page.width - SZ, pressStart.sx + ndx));
+    sc.y = Math.max(0, Math.min(page.height - SZ, pressStart.sy + ndy));
+    applyGeom();
+  }
+  function onUp(e){
+    if(e.pointerId !== pressId) return;
+    e.stopPropagation();
+    const wasArmed = armed, wasMoved = moved;
+    clearPress();
+    moved = false;
+    if(wasMoved){
+      scheduleSave();
+    } else if(!wasArmed){
+      document.getElementById('modal').style.display = 'flex';
+    }
+  }
+  function onCancel(e){
+    if(e.pointerId !== pressId) return;
+    clearPress();
+    moved = false;
+  }
+  el.addEventListener('pointerdown', (e)=>{
+    e.stopPropagation();
+    pressId = e.pointerId;
+    pressStart = {x:e.clientX, y:e.clientY, sx:sc.x, sy:sc.y};
+    armed = false; moved = false;
+    document.addEventListener('pointermove', onMove);
+    document.addEventListener('pointerup', onUp);
+    document.addEventListener('pointercancel', onCancel);
+    longPressTimer = setTimeout(()=>{
+      armed = true;
+      el.classList.add('armed');
+      if(navigator.vibrate){ try{ navigator.vibrate(15); }catch(err){ /* ignore */ } }
+    }, LONG_PRESS_MS);
+  });
+
+  return el;
+}
+function placeShortcutAt(e){
+  const pageIdx = pageIdxFromEvent(e);
+  const block = stackEl.querySelector(`.page-block[data-page-idx="${pageIdx}"]`);
+  if(!block){ setPlacingShortcut(false); return; }
+  ensureBlockBuilt(pageIdx);
+  const page = current.pages[pageIdx];
+  if(!page.shortcuts) page.shortcuts = [];
+  const rect = block.getBoundingClientRect();
+  const SZ = 40;
+  let x = (e.clientX - rect.left) / zoom - SZ/2;
+  let y = (e.clientY - rect.top) / zoom - SZ/2;
+  x = Math.max(0, Math.min(page.width - SZ, x));
+  y = Math.max(0, Math.min(page.height - SZ, y));
+  const sc = { id: 'shortcut_'+Date.now()+'_'+Math.random().toString(36).slice(2,6), x, y };
+  page.shortcuts.push(sc);
+  block.appendChild(createShortcutElement(page, pageIdx, sc));
+  scheduleSave();
+  setPlacingShortcut(false);
+}
+function setPlacingShortcut(v){
+  placingShortcut = v;
+  document.getElementById('btn-add-shortcut').classList.toggle('active', v);
+  stackEl.style.cursor = v ? 'copy' : (tool==='pan' ? 'grab' : 'crosshair');
+}
+
 function onPointerDown(e){
   if(e.pointerType==='mouse' && e.button!==0) return;
+  if(placingShortcut){
+    e.preventDefault();
+    placeShortcutAt(e);
+    return;
+  }
   activePointers.set(e.pointerId, {x:e.clientX, y:e.clientY, type:e.pointerType});
 
   const tEntries = touchEntries();
@@ -2053,6 +2182,10 @@ document.getElementById('image-input').onchange = (e)=>{
   e.target.value = '';
   if(file) addImageToPage(curPage, file);
 };
+document.getElementById('btn-add-shortcut').addEventListener('click', ()=>{
+  setPlacingShortcut(!placingShortcut);
+  if(placingShortcut) toast('노트 위를 눌러서 아이콘을 놓을 위치를 선택하세요');
+});
 document.getElementById('btn-zoom-in').onclick = ()=>{ zoom = Math.min(10, zoom + (zoom<3?0.15:0.5)); stackEl.style.transform = `scale(${zoom})`; centerIfFits(); };
 document.getElementById('btn-zoom-out').onclick = ()=>{ zoom = Math.max(0.4, zoom-0.15); stackEl.style.transform = `scale(${zoom})`; centerIfFits(); };
 
