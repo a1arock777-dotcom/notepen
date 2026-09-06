@@ -548,6 +548,30 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
 <script>
+/* ================= 임시 디버그 로그 (터치 이벤트 진단용 - 문제 해결 후 제거 예정) ================= */
+(function setupDebugHud(){
+  const hud = document.createElement('div');
+  hud.id = 'debug-hud';
+  hud.style.cssText = 'position:fixed; left:4px; bottom:4px; z-index:99999; background:rgba(0,0,0,0.85); color:#0f0; font:10px/1.4 monospace; padding:6px 8px; border-radius:6px; max-width:94vw; max-height:40vh; overflow:auto; white-space:pre-wrap; pointer-events:none;';
+  document.addEventListener('DOMContentLoaded', ()=> document.body.appendChild(hud));
+  if(document.body) document.body.appendChild(hud);
+  const lines = [];
+  function log(msg){
+    lines.push(msg);
+    if(lines.length > 30) lines.shift();
+    hud.textContent = lines.join('\n');
+  }
+  window.__npLog = log;
+  ['pointerdown','pointerup','pointercancel','click'].forEach(type=>{
+    document.addEventListener(type, (e)=>{
+      const t = e.target;
+      const cls = (t && typeof t.className==='string' && t.className) ? t.className : (t && t.tagName) || '?';
+      log('[raw]'+type+' pt='+(e.pointerType||'-')+' id='+(e.pointerId!=null?e.pointerId:'-')+' tgt='+cls+' xy='+Math.round(e.clientX)+','+Math.round(e.clientY));
+    }, true); // capture 단계에서 관찰만 함 - stopPropagation/preventDefault 호출 안 해서 기존 동작에 영향 없음
+  });
+})();
+function npLog(msg){ if(window.__npLog) window.__npLog(msg); }
+
 // PDF.js가 네트워크 문제 등으로 로드되지 못해도 앱 전체(필기/새 노트 등)가 먹통이 되지 않도록 방어.
 // 이 부분이 없으면 CDN 로딩이 실패/지연될 때 스크립트 전체가 여기서 멈춰서 버튼이 하나도 안 눌리게 됨.
 const PDFJS_AVAILABLE = typeof pdfjsLib !== 'undefined';
@@ -1497,8 +1521,8 @@ function createStickyElement(page, pageIdx, st){
   // 버튼 위에서는 pointerdown 단계에서부터 확실히 전파를 끊어서, 헤더 드래그 로직이나
   // 바깥 페이지의 전역 팬/핀치 로직으로 이벤트가 새어나가 탭(클릭)이 씹히는 일이 없도록 함.
   [maxBtn, minBtn, delBtn].forEach(b=>{
-    b.addEventListener('pointerdown', (e)=> e.stopPropagation());
-    b.addEventListener('pointerup', (e)=> e.stopPropagation());
+    b.addEventListener('pointerdown', (e)=>{ npLog('[btn]pointerdown on '+b.title+' pt='+e.pointerType); e.stopPropagation(); });
+    b.addEventListener('pointerup', (e)=>{ npLog('[btn]pointerup on '+b.title); e.stopPropagation(); });
   });
 
   const canvas = document.createElement('canvas'); canvas.className = 'sticky-canvas';
@@ -1550,6 +1574,7 @@ function createStickyElement(page, pageIdx, st){
     }
   }
   maxBtn.addEventListener('click', (e)=>{
+    npLog('[btn]maxBtn click pt='+e.pointerType);
     e.stopPropagation();
     toggleMaximize();
   });
@@ -1567,8 +1592,10 @@ function createStickyElement(page, pageIdx, st){
       st.x = Math.max(0, Math.min(page.width - (st.collapsed?34:st.w), start.sx + dx));
       st.y = Math.max(0, Math.min(page.height - (st.collapsed?34:st.h), start.sy + dy));
       applyGeom();
+      npLog('[drag]onMove id='+e.pointerId+' dx='+dx.toFixed(0)+' dy='+dy.toFixed(0)+' newXY='+st.x.toFixed(0)+','+st.y.toFixed(0));
     }
     function up(e){
+      npLog('[drag]up called, id='+(e?e.pointerId:'none')+' activeId='+activeId+' dragging='+dragging+' moved='+moved);
       if(!dragging || (e && e.pointerId !== activeId)) return;
       if(e) e.stopPropagation();
       dragging = false; activeId = null;
@@ -1579,10 +1606,12 @@ function createStickyElement(page, pageIdx, st){
       scheduleSave();
     }
     handleEl.addEventListener('pointerdown', (e)=>{
+      npLog('[drag]pointerdown on handle, tgt='+(e.target&&e.target.className)+' pt='+e.pointerType+' id='+e.pointerId+' isButton='+(!!e.target.closest('button')));
       if(e.target.closest('button')) return; // 헤더 안 버튼(확대/접기/삭제)은 드래그 대상이 아님 - 버튼 클릭이 먹히도록 통과시킴
       e.stopPropagation();
       dragging = true; moved = false; activeId = e.pointerId;
       start = {x:e.clientX, y:e.clientY, sx:st.x, sy:st.y};
+      npLog('[drag]dragging started, start=('+start.x+','+start.y+') stXY=('+st.x+','+st.y+') zoom='+zoom);
       document.addEventListener('pointermove', onMove);
       document.addEventListener('pointerup', up);
       document.addEventListener('pointercancel', up);
@@ -1630,6 +1659,7 @@ function createStickyElement(page, pageIdx, st){
   canvas.addEventListener('pointercancel', stEnd);
 
   minBtn.addEventListener('click', (e)=>{
+    npLog('[btn]minBtn click');
     e.stopPropagation();
     st.collapsed = true;
     el.classList.add('collapsed');
@@ -1637,6 +1667,7 @@ function createStickyElement(page, pageIdx, st){
     scheduleSave();
   });
   delBtn.addEventListener('click', (e)=>{
+    npLog('[btn]delBtn(sticky) click');
     e.stopPropagation();
     if(!confirm('이 메모를 삭제할까요?')) return;
     const arr = page.stickies;
@@ -1781,6 +1812,7 @@ function createImageElement(page, pageIdx, im){
 }
 
 function onPointerDown(e){
+  npLog('[page]onPointerDown tgt='+(e.target&&e.target.className)+' pt='+e.pointerType);
   if(e.pointerType==='mouse' && e.button!==0) return;
   activePointers.set(e.pointerId, {x:e.clientX, y:e.clientY, type:e.pointerType});
 
