@@ -557,8 +557,9 @@
   if(document.body) document.body.appendChild(hud);
   const lines = [];
   function log(msg){
-    lines.push(msg);
-    if(lines.length > 30) lines.shift();
+    // 최신 로그가 항상 맨 위에 오도록(스크롤 없이 바로 보이게) unshift 사용
+    lines.unshift(msg);
+    if(lines.length > 30) lines.pop();
     hud.textContent = lines.join('\n');
   }
   window.__npLog = log;
