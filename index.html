@@ -1494,6 +1494,12 @@ function createStickyElement(page, pageIdx, st){
   const delBtn = document.createElement('button'); delBtn.type='button'; delBtn.textContent = '×'; delBtn.title = '삭제';
   btns.appendChild(maxBtn); btns.appendChild(minBtn); btns.appendChild(delBtn);
   head.appendChild(drag); head.appendChild(btns);
+  // 버튼 위에서는 pointerdown 단계에서부터 확실히 전파를 끊어서, 헤더 드래그 로직이나
+  // 바깥 페이지의 전역 팬/핀치 로직으로 이벤트가 새어나가 탭(클릭)이 씹히는 일이 없도록 함.
+  [maxBtn, minBtn, delBtn].forEach(b=>{
+    b.addEventListener('pointerdown', (e)=> e.stopPropagation());
+    b.addEventListener('pointerup', (e)=> e.stopPropagation());
+  });
 
   const canvas = document.createElement('canvas'); canvas.className = 'sticky-canvas';
   canvas.width = st.w * 2; canvas.height = (st.h - 24) * 2;
@@ -1549,33 +1555,38 @@ function createStickyElement(page, pageIdx, st){
   });
 
   // 헤더/아이콘을 드래그해서 노트 위 원하는 위치로 옮기기
+  // (일부 모바일 브라우저에서 setPointerCapture가 터치에 대해 불안정하게 동작하는 경우가 있어,
+  //  캡처 대신 document에 직접 리스너를 걸고 pointerId로 매칭하는 방식으로 구현)
   function makeDraggable(handleEl, onTap){
-    let dragging=false, moved=false, start=null;
-    handleEl.addEventListener('pointerdown', (e)=>{
-      if(e.target.closest('button')) return; // 헤더 안 버튼(확대/접기/삭제)은 드래그 대상이 아님 - 버튼 클릭이 먹히도록 통과시킴
+    let dragging=false, moved=false, start=null, activeId=null;
+    function onMove(e){
+      if(!dragging || e.pointerId !== activeId) return;
       e.stopPropagation();
-      dragging = true; moved = false;
-      handleEl.setPointerCapture(e.pointerId);
-      start = {x:e.clientX, y:e.clientY, sx:st.x, sy:st.y};
-    });
-    handleEl.addEventListener('pointermove', (e)=>{
-      e.stopPropagation();
-      if(!dragging) return;
       const dx = (e.clientX - start.x)/zoom, dy = (e.clientY - start.y)/zoom;
       if(Math.abs(e.clientX-start.x)>3 || Math.abs(e.clientY-start.y)>3) moved = true;
       st.x = Math.max(0, Math.min(page.width - (st.collapsed?34:st.w), start.sx + dx));
       st.y = Math.max(0, Math.min(page.height - (st.collapsed?34:st.h), start.sy + dy));
       applyGeom();
-    });
+    }
     function up(e){
+      if(!dragging || (e && e.pointerId !== activeId)) return;
       if(e) e.stopPropagation();
-      if(!dragging) return;
-      dragging = false;
+      dragging = false; activeId = null;
+      document.removeEventListener('pointermove', onMove);
+      document.removeEventListener('pointerup', up);
+      document.removeEventListener('pointercancel', up);
       if(!moved && onTap) onTap();
       scheduleSave();
     }
-    handleEl.addEventListener('pointerup', up);
-    handleEl.addEventListener('pointercancel', up);
+    handleEl.addEventListener('pointerdown', (e)=>{
+      if(e.target.closest('button')) return; // 헤더 안 버튼(확대/접기/삭제)은 드래그 대상이 아님 - 버튼 클릭이 먹히도록 통과시킴
+      e.stopPropagation();
+      dragging = true; moved = false; activeId = e.pointerId;
+      start = {x:e.clientX, y:e.clientY, sx:st.x, sy:st.y};
+      document.addEventListener('pointermove', onMove);
+      document.addEventListener('pointerup', up);
+      document.addEventListener('pointercancel', up);
+    });
   }
   makeDraggable(head, null);
   makeDraggable(icon, ()=>{
@@ -1683,6 +1694,9 @@ function createImageElement(page, pageIdx, im){
   const drag = document.createElement('span'); drag.textContent = '⠿⠿';
   const delBtn = document.createElement('button'); delBtn.type='button'; delBtn.textContent = '×'; delBtn.title = '삭제';
   head.appendChild(drag); head.appendChild(delBtn);
+  // 버튼 위에서는 pointerdown 단계부터 전파를 끊어서 헤더 드래그로 새지 않게 함
+  delBtn.addEventListener('pointerdown', (e)=> e.stopPropagation());
+  delBtn.addEventListener('pointerup', (e)=> e.stopPropagation());
 
   const body = document.createElement('div'); body.className = 'img-body';
   const imgTag = document.createElement('img'); imgTag.src = im.src; imgTag.draggable = false;
@@ -1693,44 +1707,65 @@ function createImageElement(page, pageIdx, im){
   el.appendChild(head); el.appendChild(body);
 
   // 헤더 드래그 -> 이동
-  let dragging=false, dragStart=null;
-  head.addEventListener('pointerdown', (e)=>{
+  // (setPointerCapture 대신 document 리스너 + pointerId 매칭 - 일부 모바일 브라우저에서
+  //  터치에 대한 캡처가 불안정한 문제를 피하기 위함)
+  let dragging=false, dragStart=null, dragId=null;
+  function onDragMove(e){
+    if(!dragging || e.pointerId !== dragId) return;
     e.stopPropagation();
-    dragging = true; head.setPointerCapture(e.pointerId);
-    dragStart = {x:e.clientX, y:e.clientY, sx:im.x, sy:im.y};
-  });
-  head.addEventListener('pointermove', (e)=>{
-    e.stopPropagation();
-    if(!dragging) return;
     const dx = (e.clientX - dragStart.x)/zoom, dy = (e.clientY - dragStart.y)/zoom;
     im.x = Math.max(0, Math.min(page.width - im.w, dragStart.sx + dx));
     im.y = Math.max(0, Math.min(page.height - im.h, dragStart.sy + dy));
     applyGeom();
+  }
+  function dragEnd(e){
+    if(!dragging || (e && e.pointerId !== dragId)) return;
+    if(e) e.stopPropagation();
+    dragging=false; dragId=null;
+    document.removeEventListener('pointermove', onDragMove);
+    document.removeEventListener('pointerup', dragEnd);
+    document.removeEventListener('pointercancel', dragEnd);
+    scheduleSave();
+  }
+  head.addEventListener('pointerdown', (e)=>{
+    if(e.target.closest('button')) return; // 헤더 안 삭제 버튼은 드래그 대상이 아님 - 탭이 먹히도록 통과시킴
+    e.stopPropagation();
+    dragging = true; dragId = e.pointerId;
+    dragStart = {x:e.clientX, y:e.clientY, sx:im.x, sy:im.y};
+    document.addEventListener('pointermove', onDragMove);
+    document.addEventListener('pointerup', dragEnd);
+    document.addEventListener('pointercancel', dragEnd);
   });
-  function dragEnd(e){ if(e) e.stopPropagation(); if(dragging){ dragging=false; scheduleSave(); } }
-  head.addEventListener('pointerup', dragEnd);
-  head.addEventListener('pointercancel', dragEnd);
 
   // 오른쪽 아래 손잡이 드래그 -> 크기 조절 (가로세로 비율 유지)
-  let resizing=false, resizeStart=null;
+  let resizing=false, resizeStart=null, resizeId=null;
   const ratio = im.w / im.h;
-  resize.addEventListener('pointerdown', (e)=>{
+  function onResizeMove(e){
+    if(!resizing || e.pointerId !== resizeId) return;
     e.stopPropagation();
-    resizing = true; resize.setPointerCapture(e.pointerId);
-    resizeStart = {x:e.clientX, y:e.clientY, sw:im.w, sh:im.h};
-  });
-  resize.addEventListener('pointermove', (e)=>{
-    e.stopPropagation();
-    if(!resizing) return;
     const dx = (e.clientX - resizeStart.x)/zoom;
     let w = Math.max(40, resizeStart.sw + dx);
     w = Math.min(w, page.width - im.x);
     im.w = w; im.h = w / ratio;
     applyGeom();
+  }
+  function resizeEnd(e){
+    if(!resizing || (e && e.pointerId !== resizeId)) return;
+    if(e) e.stopPropagation();
+    resizing=false; resizeId=null;
+    document.removeEventListener('pointermove', onResizeMove);
+    document.removeEventListener('pointerup', resizeEnd);
+    document.removeEventListener('pointercancel', resizeEnd);
+    scheduleSave();
+  }
+  resize.addEventListener('pointerdown', (e)=>{
+    e.stopPropagation();
+    resizing = true; resizeId = e.pointerId;
+    resizeStart = {x:e.clientX, y:e.clientY, sw:im.w, sh:im.h};
+    document.addEventListener('pointermove', onResizeMove);
+    document.addEventListener('pointerup', resizeEnd);
+    document.addEventListener('pointercancel', resizeEnd);
   });
-  function resizeEnd(e){ if(e) e.stopPropagation(); if(resizing){ resizing=false; scheduleSave(); } }
-  resize.addEventListener('pointerup', resizeEnd);
-  resize.addEventListener('pointercancel', resizeEnd);
 
   delBtn.addEventListener('click', (e)=>{
     e.stopPropagation();
