@@ -444,6 +444,8 @@
         <button class="icon-btn" data-tool="highlight" title="형광펜">🖍️</button>
       </div>
       <div class="divider"></div>
+      <button class="icon-btn" id="btn-straight-line" title="수평으로 긋기(토글)">📏</button>
+      <div class="divider"></div>
       <div class="tool-group" id="color-group">
         <div class="swatch sel" style="background:#1c1c1c" data-color="#1c1c1c"></div>
         <div class="swatch" style="background:#d9622b" data-color="#d9622b"></div>
@@ -464,6 +466,7 @@
       <div id="highlight-opacity-wrap" style="display:none; align-items:center; gap:4px;" title="형광펜 투명도">
         <span style="font-size:13px;">🔅</span>
         <input type="range" id="highlight-opacity" min="10" max="90" value="35">
+        <input type="number" class="size-value" id="highlight-opacity-value" min="10" max="90" value="35">
       </div>
       <div class="divider"></div>
       <input type="range" id="size-range" min="1" max="20" value="3">
@@ -832,6 +835,7 @@ let color = '#1c1c1c';
 let size = 3;
 let highlightColor = '#ff3b30';
 let highlightOpacity = 0.35;
+let straightLineMode = false;
 let zoom = 1;
 let pdfDoc = null;       // pdf.js document proxy for current notebook
 
@@ -1716,7 +1720,10 @@ function onPointerMove(e){
     return;
   }
   if(!drawing) return;
-  const {x,y} = coordFromEvent(e);
+  let {x,y} = coordFromEvent(e);
+  if(straightLineMode && currentStroke && currentStroke.points.length){
+    y = currentStroke.points[0].y; // 수평 고정 모드: 시작점의 y로 고정해서 완전한 가로 직선이 되도록
+  }
   if(activeAction==='pen' && currentStroke){
     currentStroke.points.push({x,y,p:e.pressure||0.5});
     const ctx = hitLayerCanvas().getContext('2d');
@@ -1857,7 +1864,25 @@ document.querySelectorAll('#highlight-color-group .swatch').forEach(sw=>{
 });
 document.getElementById('highlight-opacity').oninput = (e)=>{
   highlightOpacity = parseInt(e.target.value,10) / 100;
+  document.getElementById('highlight-opacity-value').value = e.target.value;
 };
+function applyHighlightOpacityFromInput(finalize){
+  const input = document.getElementById('highlight-opacity-value');
+  const raw = input.value;
+  let v = parseInt(raw, 10);
+  if(isNaN(v)){ if(finalize){ input.value = Math.round(highlightOpacity*100); } return; }
+  if(finalize){ v = Math.max(10, Math.min(90, v)); input.value = v; }
+  highlightOpacity = v / 100;
+  document.getElementById('highlight-opacity').value = Math.max(10, Math.min(90, v));
+}
+document.getElementById('highlight-opacity-value').addEventListener('input', ()=> applyHighlightOpacityFromInput(false));
+document.getElementById('highlight-opacity-value').addEventListener('blur', ()=> applyHighlightOpacityFromInput(true));
+document.getElementById('highlight-opacity-value').addEventListener('keydown', (e)=>{ if(e.key==='Enter'){ applyHighlightOpacityFromInput(true); e.target.blur(); } });
+document.getElementById('highlight-opacity-value').value = Math.round(highlightOpacity*100);
+document.getElementById('btn-straight-line').addEventListener('click', ()=>{
+  straightLineMode = !straightLineMode;
+  document.getElementById('btn-straight-line').classList.toggle('active', straightLineMode);
+});
 document.getElementById('size-range').oninput = (e)=>{
   size = parseInt(e.target.value,10);
   document.getElementById('size-value').value = size;
