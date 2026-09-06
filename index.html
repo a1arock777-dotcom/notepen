@@ -1269,10 +1269,14 @@ function drawHighlightStroke(ctx, s){
     return;
   }
   ctx.lineWidth = w;
+  // 세그먼트마다 따로 stroke()하면 겹치는 이음새(둥근 caps/joins)가 여러 번 겹쳐 칠해져 진하기가 들쭉날쭉해짐.
+  // 경로 전체를 하나로 이어서 단 한 번만 stroke()해야 투명도가 균일하게 적용됨.
+  ctx.beginPath();
+  ctx.moveTo(s.points[0].x, s.points[0].y);
   for(let i=1;i<s.points.length;i++){
-    const a = s.points[i-1], b = s.points[i];
-    ctx.beginPath(); ctx.moveTo(a.x,a.y); ctx.lineTo(b.x,b.y); ctx.stroke();
+    ctx.lineTo(s.points[i].x, s.points[i].y);
   }
+  ctx.stroke();
   ctx.restore();
 }
 function drawStroke(ctx, s){
@@ -1352,6 +1356,7 @@ function redrawLayerCanvas(pageIdx, layerIdx){
 let drawing = false;
 let currentStroke = null;
 let maskStart = null;
+let highlightSnapshot = null; // 형광펜 그리는 도중 겹치는 부분이 진해지지 않도록, 획 시작 시점의 캔버스를 저장해두고 매번 복원 후 전체 경로를 한 번에 다시 그림
 let previewMaskEl = null;
 
 // 두 손가락 핀치 확대/축소 + 두 번 톡톡(더블탭) 폭 맞춤용 상태
@@ -1658,6 +1663,8 @@ function onPointerDown(e){
     currentStroke = { type:'pencil', color, size, points:[{x,y,p:e.pressure||0.5}] };
   } else if(activeAction==='highlight'){
     currentStroke = { type:'highlight', color:highlightColor, size, opacity:highlightOpacity, points:[{x,y}] };
+    const hctx = hitLayerCanvas().getContext('2d');
+    highlightSnapshot = hctx.getImageData(0, 0, hctx.canvas.width, hctx.canvas.height);
   } else if(activeAction==='eraser'){
     eraseAt(x,y);
   } else if(activeAction==='mask'){
@@ -1754,14 +1761,19 @@ function onPointerMove(e){
     currentStroke.points.push({x,y});
     const ctx = hitLayerCanvas().getContext('2d');
     const pts = currentStroke.points;
-    const a = pts[pts.length-2], b = pts[pts.length-1];
-    if(a){
+    if(pts.length >= 2){
+      // 매번 획 시작 시점 스냅샷으로 복원한 뒤, 지금까지의 전체 경로를 한 번에 이어그려서
+      // 겹치는 부분이 여러 번 칠해져 진해지는 것을 막고 투명도를 항상 균일하게 유지함.
+      if(highlightSnapshot) ctx.putImageData(highlightSnapshot, 0, 0);
       ctx.save();
       ctx.globalAlpha = currentStroke.opacity;
       ctx.globalCompositeOperation = 'multiply'; // 형광펜처럼 겹치는 부분만 진해지고, 밑에 있던 글씨는 가리지 않게
       ctx.lineJoin='round'; ctx.lineCap='round'; ctx.strokeStyle = currentStroke.color;
       ctx.lineWidth = highlightLineWidth(currentStroke.size);
-      ctx.beginPath(); ctx.moveTo(a.x,a.y); ctx.lineTo(b.x,b.y); ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(pts[0].x, pts[0].y);
+      for(let i=1;i<pts.length;i++){ ctx.lineTo(pts[i].x, pts[i].y); }
+      ctx.stroke();
       ctx.restore();
     }
   } else if(activeAction==='eraser'){
@@ -1812,6 +1824,7 @@ function onPointerUp(e){
   if((activeAction==='pen' || activeAction==='pencil' || activeAction==='highlight') && currentStroke){
     layer.strokes.push(currentStroke);
     currentStroke = null;
+    highlightSnapshot = null;
   } else if(activeAction==='mask' && maskStart){
     const {x,y} = coordFromEvent(e);
     const rx = Math.min(maskStart.x,x), ry = Math.min(maskStart.y,y);
