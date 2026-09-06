@@ -1592,13 +1592,16 @@ function createStickyElement(page, pageIdx, st){
     return { x:(e.clientX-rect.left)*(canvas.width/rect.width), y:(e.clientY-rect.top)*(canvas.height/rect.height) };
   }
   canvas.addEventListener('pointerdown', (e)=>{
+    // 손가락(touch)은 그리기 대상이 아님 - 팜 리젝션. 캡처/전파차단도 하지 않아야
+    // 스티커 위에서 손가락이 닿아도 바깥의 두 손가락 핀치 확대/축소·화면 이동이 정상 동작함.
+    if(e.pointerType === 'touch') return;
     e.stopPropagation();
     stDrawing = true; canvas.setPointerCapture(e.pointerId);
     stLast = stCoord(e);
   });
   canvas.addEventListener('pointermove', (e)=>{
-    e.stopPropagation();
     if(!stDrawing) return;
+    e.stopPropagation();
     const p = stCoord(e);
     sctx.strokeStyle = color;
     sctx.lineWidth = Math.max(1, size * (canvas.width/220));
@@ -1607,8 +1610,9 @@ function createStickyElement(page, pageIdx, st){
     stLast = p;
   });
   function stEnd(e){
+    if(!stDrawing) return;
     if(e) e.stopPropagation();
-    if(stDrawing){ stDrawing = false; st.img = canvas.toDataURL('image/png'); scheduleSave(); }
+    stDrawing = false; st.img = canvas.toDataURL('image/png'); scheduleSave();
   }
   canvas.addEventListener('pointerup', stEnd);
   canvas.addEventListener('pointerleave', stEnd);
