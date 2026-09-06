@@ -301,6 +301,11 @@
   .page-shortcut.linked{
     border-color:var(--accent); box-shadow:0 0 0 2px var(--accent), 0 3px 8px rgba(0,0,0,0.22);
   }
+  .page-shortcut.flash{ animation: shortcutFlash 1s ease-in-out 2; }
+  @keyframes shortcutFlash{
+    0%, 100% { box-shadow:0 3px 8px rgba(0,0,0,0.22); transform:scale(1); }
+    50% { box-shadow:0 0 0 6px var(--accent), 0 6px 16px rgba(0,0,0,0.35); transform:scale(1.25); }
+  }
   /* ---------- Layers panel ---------- */
   #layers-panel{
     position:fixed; top:52px; right:0; bottom:0; width:250px; max-width:80vw; background:var(--surface);
@@ -440,6 +445,7 @@
   <div id="editor">
     <div class="topbar">
       <button class="icon-btn" id="btn-back">←</button>
+      <button class="icon-btn" id="btn-shortcut-back" title="바로가기 아이콘으로 돌아가기" style="display:none;">↩️</button>
       <input id="title-input" value="제목 없는 노트">
       <span class="save-dot" id="save-dot"></span>
       <span class="page-indicator" id="page-indicator">1/1</span>
@@ -961,6 +967,7 @@ function renderGrid(){
       </div>`;
     card.addEventListener('click', (e)=>{
       if(e.target.closest('.card-del') || e.target.closest('.card-folder-btn')) return;
+      shortcutReturnStack = []; // 라이브러리에서 직접 고른 노트이므로, 바로가기 아이콘 경로를 따라온 것이 아님
       openNotebook(nb.id);
     });
     card.querySelector('.card-del').addEventListener('click', async (e)=>{
@@ -1008,8 +1015,8 @@ document.addEventListener('click', ()=> document.getElementById('folder-move-pop
 
 function escapeHtml(s){ const d=document.createElement('div'); d.textContent=s; return d.innerHTML; }
 
-document.getElementById('btn-new').onclick = ()=>{ pendingShortcutLink = null; document.getElementById('modal').style.display='flex'; };
-document.getElementById('modal-close').onclick = ()=>{ pendingShortcutLink = null; document.getElementById('modal').style.display='none'; };
+document.getElementById('btn-new').onclick = ()=>{ pendingShortcutLink = null; pendingShortcutOrigin = null; shortcutReturnStack = []; document.getElementById('modal').style.display='flex'; };
+document.getElementById('modal-close').onclick = ()=>{ pendingShortcutLink = null; pendingShortcutOrigin = null; document.getElementById('modal').style.display='none'; };
 let pendingBgColor = '#ffffff';
 document.getElementById('opt-blank').onclick = ()=>{
   document.getElementById('modal').style.display='none';
@@ -1018,7 +1025,7 @@ document.getElementById('opt-blank').onclick = ()=>{
   document.getElementById('lined-check').checked = false;
   document.getElementById('modal-blank').style.display='flex';
 };
-document.getElementById('modal-blank-close').onclick = ()=>{ pendingShortcutLink = null; document.getElementById('modal-blank').style.display='none'; };
+document.getElementById('modal-blank-close').onclick = ()=>{ pendingShortcutLink = null; pendingShortcutOrigin = null; document.getElementById('modal-blank').style.display='none'; };
 document.querySelectorAll('#bgcolor-group .bg-swatch').forEach(sw=>{
   sw.addEventListener('click', ()=>{
     pendingBgColor = sw.dataset.bg;
@@ -1113,14 +1120,32 @@ async function openNotebook(id){
   renderAllPages();
   wrapEl.scrollTop = 0;
   refreshLayersPanel();
+  document.getElementById('btn-shortcut-back').style.display = shortcutReturnStack.length ? 'flex' : 'none';
 }
 document.getElementById('btn-back').onclick = async ()=>{
   await persist(true);
+  shortcutReturnStack = []; // 라이브러리로 직접 나가는 것이므로 바로가기 복귀 경로는 더 이상 의미가 없음
   editorEl.style.display = 'none';
   libraryEl.style.display = 'block';
   document.getElementById('layers-panel').classList.remove('open');
   refreshLibrary();
 };
+document.getElementById('btn-shortcut-back').addEventListener('click', async ()=>{
+  const entry = shortcutReturnStack.pop();
+  if(!entry) return;
+  await openNotebook(entry.notebookId);
+  scrollToPage(entry.pageIdx);
+  if(entry.shortcutId){
+    ensureBlockBuilt(entry.pageIdx);
+    setTimeout(()=>{
+      const iconEl = stackEl.querySelector(`.page-shortcut[data-id="${entry.shortcutId}"]`);
+      if(iconEl){
+        iconEl.classList.add('flash');
+        setTimeout(()=> iconEl.classList.remove('flash'), 2000);
+      }
+    }, 350); // 스크롤 애니메이션이 어느 정도 진행된 뒤에 강조해야 눈에 잘 띔
+  }
+});
 document.getElementById('title-input').oninput = (e)=>{ current.title = e.target.value; scheduleSave(); };
 
 /* ================= Rendering ================= */
@@ -1380,6 +1405,8 @@ let maskStart = null;
 let highlightSnapshot = null; // 형광펜 그리는 도중 겹치는 부분이 진해지지 않도록, 획 시작 시점의 캔버스를 저장해두고 매번 복원 후 전체 경로를 한 번에 다시 그림
 let placingShortcut = false; // true인 동안은 다음 터치/클릭 한 번으로 노트 위에 바로가기 아이콘을 배치함
 let pendingShortcutLink = null; // 아직 연결된 노트가 없는 바로가기 아이콘을 탭해서 "새 노트 만들기"가 열린 경우, 그 아이콘을 기억해뒀다가 노트가 만들어지면 연결시킴
+let pendingShortcutOrigin = null; // 위 상황에서, 새로 만든 노트를 열고 난 뒤 "돌아가기" 버튼이 어디로 돌아가야 하는지(원래 노트/페이지)
+let shortcutReturnStack = []; // 바로가기 아이콘을 눌러서 이동해온 경로. "돌아가기" 버튼으로 하나씩 거슬러 올라감
 let previewMaskEl = null;
 
 // 두 손가락 핀치 확대/축소 + 두 번 톡톡(더블탭) 폭 맞춤용 상태
@@ -1689,9 +1716,12 @@ function createShortcutElement(page, pageIdx, sc){
       scheduleSave();
     } else if(!wasArmed){
       if(sc.linkedNotebookId){
-        openNotebook(sc.linkedNotebookId); // 이미 연결된 노트가 있으면 새로 만들지 않고 그 노트를 바로 염
+        // 이미 연결된 노트가 있으면 새로 만들지 않고 그 노트를 바로 염. 돌아올 수 있게 지금 위치를 기록해둠.
+        shortcutReturnStack.push({notebookId: current.id, pageIdx, shortcutId: sc.id});
+        openNotebook(sc.linkedNotebookId);
       } else {
         pendingShortcutLink = sc;
+        pendingShortcutOrigin = {notebookId: current.id, pageIdx, shortcutId: sc.id};
         document.getElementById('modal').style.display = 'flex';
       }
     }
@@ -1744,6 +1774,11 @@ async function linkPendingShortcutTo(notebookId){
   if(!pendingShortcutLink) return;
   pendingShortcutLink.linkedNotebookId = notebookId;
   pendingShortcutLink = null;
+  if(pendingShortcutOrigin){
+    // 원래 있던 자리를 기록해둬서, 방금 만든 노트에서 "돌아가기" 버튼으로 여기로 되돌아올 수 있게 함
+    shortcutReturnStack.push(pendingShortcutOrigin);
+    pendingShortcutOrigin = null;
+  }
   await persist();
 }
 function setPlacingShortcut(v){
