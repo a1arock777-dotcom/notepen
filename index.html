@@ -301,6 +301,12 @@
   .page-shortcut.linked{
     border-color:var(--accent); box-shadow:0 0 0 2px var(--accent), 0 3px 8px rgba(0,0,0,0.22);
   }
+  .page-shortcut .shortcut-label{
+    position:absolute; left:50%; bottom:100%; transform:translateX(-50%); margin-bottom:4px;
+    max-width:110px; padding:2px 6px; border-radius:6px; background:rgba(0,0,0,0.75); color:#fff;
+    font-size:11px; line-height:1.3; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+    pointer-events:none; z-index:57;
+  }
   .page-shortcut.flash{ animation: shortcutFlash 1s ease-in-out 2; }
   @keyframes shortcutFlash{
     0%, 100% { box-shadow:0 3px 8px rgba(0,0,0,0.22); transform:scale(1); }
@@ -1671,6 +1677,17 @@ function createShortcutElement(page, pageIdx, sc){
   el.dataset.id = sc.id;
   el.textContent = '📄';
   if(sc.linkedNotebookId) el.classList.add('linked');
+
+  // 아이콘이 어느 노트로 이어지는지 위에 조그맣게 노트 제목을 띄워줌
+  if(sc.linkedNotebookId){
+    const label = document.createElement('div');
+    label.className = 'shortcut-label';
+    el.appendChild(label);
+    dbGetOne(sc.linkedNotebookId).then(linkedNb=>{
+      if(linkedNb) label.textContent = linkedNb.title || '(제목 없음)';
+      else label.remove(); // 연결된 노트를 찾을 수 없으면(삭제됨 등) 라벨을 띄우지 않음
+    });
+  }
 
   function applyGeom(){
     el.style.left = sc.x + 'px';
