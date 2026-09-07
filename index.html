@@ -1754,7 +1754,14 @@ function createShortcutElement(page, pageIdx, sc){
         return;
       }
     }
-    if(el.classList.contains('deleting')) dismissDeleting(); // 실제로 옮기기 시작하면 삭제 버튼은 비켜줌
+    if(el.classList.contains('deleting')){
+      // 삭제 버튼이 떠 있는 동안엔 손가락이 살짝 떨리는 정도로는 사라지지 않도록, 임계값을 넘는 실제 이동일 때만 비켜줌
+      if(Math.hypot(dx,dy) > MOVE_THRESHOLD){
+        dismissDeleting();
+      } else {
+        return;
+      }
+    }
     moved = true;
     const ndx = dx/zoom, ndy = dy/zoom;
     sc.x = Math.max(0, Math.min(page.width - SZ, pressStart.sx + ndx));
