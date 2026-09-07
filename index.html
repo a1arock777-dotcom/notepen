@@ -301,6 +301,12 @@
   .page-shortcut.linked{
     border-color:var(--accent); box-shadow:0 0 0 2px var(--accent), 0 3px 8px rgba(0,0,0,0.22);
   }
+  .page-shortcut .shortcut-delete{
+    display:none; position:absolute; top:-9px; right:-9px; width:20px; height:20px; border-radius:50%;
+    background:var(--danger); color:#fff; font-size:13px; line-height:17px; text-align:center;
+    cursor:pointer; z-index:58; box-shadow:0 2px 6px rgba(0,0,0,0.3); border:2px solid var(--surface);
+  }
+  .page-shortcut.deleting .shortcut-delete{ display:block; }
   .page-shortcut .shortcut-label{
     position:absolute; left:50%; bottom:100%; transform:translateX(-50%); margin-bottom:4px;
     max-width:110px; padding:2px 6px; border-radius:6px; background:rgba(0,0,0,0.75); color:#fff;
@@ -1689,6 +1695,31 @@ function createShortcutElement(page, pageIdx, sc){
     });
   }
 
+  // 꾹 눌렀을 때만 나타나는 삭제 버튼 (아이콘 자체가 작아서 항상 띄워두지 않고 길게 누를 때만 노출)
+  const shortcutDelBtn = document.createElement('div');
+  shortcutDelBtn.className = 'shortcut-delete';
+  shortcutDelBtn.textContent = '×';
+  shortcutDelBtn.title = '아이콘 삭제';
+  el.appendChild(shortcutDelBtn);
+  function onOutsidePointerDown(e){
+    if(el.contains(e.target)) return;
+    dismissDeleting();
+  }
+  function dismissDeleting(){
+    el.classList.remove('deleting');
+    document.removeEventListener('pointerdown', onOutsidePointerDown, true);
+  }
+  shortcutDelBtn.addEventListener('pointerdown', (e)=> e.stopPropagation());
+  shortcutDelBtn.addEventListener('click', (e)=>{
+    e.stopPropagation();
+    if(!confirm('이 바로가기 아이콘을 삭제할까요? (연결된 노트는 삭제되지 않아요)')) return;
+    dismissDeleting();
+    const idx = page.shortcuts.indexOf(sc);
+    if(idx>-1) page.shortcuts.splice(idx,1);
+    el.remove();
+    scheduleSave();
+  });
+
   function applyGeom(){
     el.style.left = sc.x + 'px';
     el.style.top = sc.y + 'px';
@@ -1723,6 +1754,7 @@ function createShortcutElement(page, pageIdx, sc){
         return;
       }
     }
+    if(el.classList.contains('deleting')) dismissDeleting(); // 실제로 옮기기 시작하면 삭제 버튼은 비켜줌
     moved = true;
     const ndx = dx/zoom, ndy = dy/zoom;
     sc.x = Math.max(0, Math.min(page.width - SZ, pressStart.sx + ndx));
@@ -1756,6 +1788,7 @@ function createShortcutElement(page, pageIdx, sc){
   }
   el.addEventListener('pointerdown', (e)=>{
     e.stopPropagation();
+    dismissDeleting(); // 이전에 떠 있던 삭제 버튼이 있으면 새 제스처 시작 시 정리
     pressId = e.pointerId;
     pressStart = {x:e.clientX, y:e.clientY, sx:sc.x, sy:sc.y};
     armed = false; moved = false;
@@ -1765,6 +1798,8 @@ function createShortcutElement(page, pageIdx, sc){
     longPressTimer = setTimeout(()=>{
       armed = true;
       el.classList.add('armed');
+      el.classList.add('deleting'); // 꾹 누르면 삭제 버튼도 함께 노출
+      document.addEventListener('pointerdown', onOutsidePointerDown, true);
       if(navigator.vibrate){ try{ navigator.vibrate(15); }catch(err){ /* ignore */ } }
     }, LONG_PRESS_MS);
   });
