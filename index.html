@@ -1556,6 +1556,23 @@ function addImageToPage(pageIdx, file){
     const src = reader.result;
     const probe = new Image();
     probe.onload = ()=>{
+      // 원본을 그대로 저장하면(특히 휴대폰 카메라 사진) 노트 하나가 페이지 수와 상관없이
+      // 수 MB까지 커져서 클라우드 동기화 용량 제한(문서당 약 900KB)을 쉽게 넘기게 됨.
+      // 화면에 보이는 크기 대비 원본이 과도하게 크면 저장 전에 적당한 해상도로 줄여서 저장함.
+      const MAX_DIM = 2000;
+      const iw = probe.naturalWidth || 1, ih = probe.naturalHeight || 1;
+      const scale = Math.min(1, MAX_DIM / Math.max(iw, ih));
+      let finalSrc = src;
+      if(scale < 1 || src.length > 500000){
+        try{
+          const cw = Math.max(1, Math.round(iw*scale)), ch = Math.max(1, Math.round(ih*scale));
+          const cvs = document.createElement('canvas');
+          cvs.width = cw; cvs.height = ch;
+          cvs.getContext('2d').drawImage(probe, 0, 0, cw, ch);
+          finalSrc = file.type==='image/png' ? cvs.toDataURL('image/png') : cvs.toDataURL('image/jpeg', 0.85);
+          if(finalSrc.length >= src.length) finalSrc = src; // 압축 결과가 오히려 더 크면 원본을 그대로 씀
+        }catch(err){ console.error('이미지 압축 실패, 원본 사용', err); finalSrc = src; }
+      }
       const page = current.pages[pageIdx];
       if(!page.images) page.images = [];
       const maxW = page.width * 0.55;
@@ -1566,7 +1583,7 @@ function addImageToPage(pageIdx, file){
       const im = {
         id: 'img_'+Date.now()+'_'+Math.random().toString(36).slice(2,6),
         x: Math.max(0, (page.width - w)/2), y: Math.max(0, (page.height - h)/2),
-        w, h, src
+        w, h, src: finalSrc
       };
       page.images.push(im);
       ensureBlockBuilt(pageIdx);
