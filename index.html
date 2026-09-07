@@ -1055,6 +1055,11 @@ document.getElementById('pdf-input').onchange = async (e)=>{
   const file = e.target.files[0];
   e.target.value = '';
   if(!file || !PDFJS_AVAILABLE) return;
+  const looksLikePdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name);
+  if(!looksLikePdf){
+    toast('선택한 파일이 PDF가 아니에요. .pdf 파일을 선택해주세요.');
+    return;
+  }
   document.getElementById('modal').style.display='none';
   toast('PDF 불러오는 중...');
   try{
