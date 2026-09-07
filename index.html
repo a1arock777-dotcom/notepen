@@ -1421,6 +1421,11 @@ function redrawLayerCanvas(pageIdx, layerIdx){
 let drawing = false;
 let currentStroke = null;
 let maskStart = null;
+// 한 획을 긋는 동안(pointerdown~pointerup) 대상 캔버스/컨텍스트는 절대 바뀌지 않으므로,
+// pointermove마다 매번 stackEl.querySelector로 다시 찾지 않고 획 시작 시점에 한 번만 찾아 캐시해둠.
+// (펜촉과 실제 잉크 사이에 체감되는 지연의 원인 중 하나 - 이동 이벤트마다 DOM 탐색을 반복하던 것을 제거)
+let strokeCanvas = null;
+let strokeCtx = null;
 let highlightSnapshot = null; // 형광펜 그리는 도중 겹치는 부분이 진해지지 않도록, 획 시작 시점의 캔버스를 저장해두고 매번 복원 후 전체 경로를 한 번에 다시 그림
 let placingShortcut = false; // true인 동안은 다음 터치/클릭 한 번으로 노트 위에 바로가기 아이콘을 배치함
 let pendingShortcutLink = null; // 아직 연결된 노트가 없는 바로가기 아이콘을 탭해서 "새 노트 만들기"가 열린 경우, 그 아이콘을 기억해뒀다가 노트가 만들어지면 연결시킴
@@ -1501,8 +1506,9 @@ function pageIdxFromEvent(e){
   if(block && block.dataset.pageIdx!=null) return parseInt(block.dataset.pageIdx,10);
   return curPage;
 }
-function coordFromEvent(e){
-  const c = hitLayerCanvas();
+function coordFromEvent(e, canvasOverride){
+  // canvasOverride: 그리기 중(pointermove)에는 매번 DOM을 다시 뒤지지 않도록 캐시된 캔버스를 넘겨받아 씀
+  const c = canvasOverride || hitLayerCanvas();
   const rect = c.getBoundingClientRect();
   const x = (e.clientX - rect.left) * (c.width / rect.width);
   const y = (e.clientY - rect.top) * (c.height / rect.height);
@@ -1877,7 +1883,9 @@ function onPointerDown(e){
   activeAction = resolveAction(e);
   activePageIdx = pageIdxFromEvent(e);
   ensureBlockBuilt(activePageIdx); // 지연 렌더링으로 아직 안 그려진 페이지일 수 있으니 미리 채워둠
-  const {x,y} = coordFromEvent(e);
+  strokeCanvas = hitLayerCanvas();
+  strokeCtx = strokeCanvas ? strokeCanvas.getContext('2d') : null;
+  const {x,y} = coordFromEvent(e, strokeCanvas);
   const layer = current.pages[activePageIdx].layers[activeLayerIdx];
   if(!layer){ return; }
 
@@ -1911,8 +1919,7 @@ function onPointerDown(e){
     currentStroke = { type:'pencil', color, size, points:[{x,y,p:e.pressure||0.5}] };
   } else if(activeAction==='highlight'){
     currentStroke = { type:'highlight', color:highlightColor, size, opacity:highlightOpacity, points:[{x,y}] };
-    const hctx = hitLayerCanvas().getContext('2d');
-    highlightSnapshot = hctx.getImageData(0, 0, hctx.canvas.width, hctx.canvas.height);
+    highlightSnapshot = strokeCtx.getImageData(0, 0, strokeCtx.canvas.width, strokeCtx.canvas.height);
   } else if(activeAction==='eraser'){
     eraseAt(x,y);
   } else if(activeAction==='mask'){
@@ -1975,13 +1982,13 @@ function onPointerMove(e){
     return;
   }
   if(!drawing) return;
-  let {x,y} = coordFromEvent(e);
+  let {x,y} = coordFromEvent(e, strokeCanvas);
   if(straightLineMode && currentStroke && currentStroke.points.length){
     y = currentStroke.points[0].y; // 수평 고정 모드: 시작점의 y로 고정해서 완전한 가로 직선이 되도록
   }
   if(activeAction==='pen' && currentStroke){
     currentStroke.points.push({x,y,p:e.pressure||0.5});
-    const ctx = hitLayerCanvas().getContext('2d');
+    const ctx = strokeCtx;
     const pts = currentStroke.points;
     const a = pts[pts.length-2], b = pts[pts.length-1];
     if(a){
@@ -1991,7 +1998,7 @@ function onPointerMove(e){
     }
   } else if(activeAction==='pencil' && currentStroke){
     currentStroke.points.push({x,y,p:e.pressure||0.5});
-    const ctx = hitLayerCanvas().getContext('2d');
+    const ctx = strokeCtx;
     const pts = currentStroke.points;
     const a = pts[pts.length-2], b = pts[pts.length-1];
     if(a){
@@ -2007,7 +2014,7 @@ function onPointerMove(e){
     }
   } else if(activeAction==='highlight' && currentStroke){
     currentStroke.points.push({x,y});
-    const ctx = hitLayerCanvas().getContext('2d');
+    const ctx = strokeCtx;
     const pts = currentStroke.points;
     if(pts.length >= 2){
       // 매번 획 시작 시점 스냅샷으로 복원한 뒤, 지금까지의 전체 경로를 한 번에 이어그려서
@@ -2028,7 +2035,7 @@ function onPointerMove(e){
     eraseAt(x,y);
   } else if(activeAction==='mask' && maskStart){
     redrawLayerCanvas(activePageIdx, activeLayerIdx);
-    const ctx = hitLayerCanvas().getContext('2d');
+    const ctx = strokeCtx;
     ctx.save(); ctx.globalAlpha=0.5; ctx.fillStyle=color;
     ctx.fillRect(Math.min(maskStart.x,x), Math.min(maskStart.y,y), Math.abs(x-maskStart.x), Math.abs(y-maskStart.y));
     ctx.restore();
