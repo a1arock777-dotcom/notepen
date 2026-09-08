@@ -2271,23 +2271,37 @@ function closeEraserPopover(){
 }
 renderEraserPopover();
 const btnEraser = document.getElementById('btn-eraser');
+// 짧게 누르면(탭) 지금 선택되어 있는 모드를 곧바로 실행하고, 꾹 누르고 있으면 모드 선택 메뉴가 뜸.
+const ERASER_LONG_PRESS_MS = 450;
+let eraserPressTimer = null;
+let eraserLongPressFired = false;
+function cancelEraserPressTimer(){
+  if(eraserPressTimer){ clearTimeout(eraserPressTimer); eraserPressTimer = null; }
+}
+btnEraser.addEventListener('pointerdown', ()=>{
+  eraserLongPressFired = false;
+  cancelEraserPressTimer();
+  eraserPressTimer = setTimeout(()=>{
+    eraserLongPressFired = true;
+    if(navigator.vibrate){ try{ navigator.vibrate(15); }catch(err){ /* ignore */ } }
+    openEraserPopover();
+  }, ERASER_LONG_PRESS_MS);
+});
+btnEraser.addEventListener('pointerup', ()=> cancelEraserPressTimer());
+btnEraser.addEventListener('pointercancel', ()=> cancelEraserPressTimer());
 btnEraser.addEventListener('click', (ev)=>{
   ev.stopPropagation();
-  const wasActive = tool === 'eraser';
+  if(eraserLongPressFired){
+    // 꾹 눌러서 이미 옵션 메뉴를 열었으니, 여기서는 탭 동작(모드 실행)을 하지 않음
+    eraserLongPressFired = false;
+    return;
+  }
   tool = 'eraser';
   document.querySelectorAll('[data-tool]').forEach(b=>b.classList.toggle('active', b===btnEraser));
   stackEl.style.cursor = 'crosshair';
   updateToolUI();
-  if(!wasActive){
-    // 다른 도구에서 지우개로 막 전환한 경우: 지금 선택되어 있는 모드를 곧바로 적용함
-    closeEraserPopover();
-    if(eraserMode !== 'select') performEraserAction(eraserMode);
-  } else {
-    // 이미 지우개가 선택된 상태에서 다시 누르면, 모드를 바꿀 수 있는 옵션 메뉴를 열고/닫음
-    const pop = document.getElementById('eraser-popover');
-    const willOpen = !pop.classList.contains('open');
-    if(willOpen) openEraserPopover(); else closeEraserPopover();
-  }
+  closeEraserPopover();
+  if(eraserMode !== 'select') performEraserAction(eraserMode);
 });
 document.querySelectorAll('.eraser-opt').forEach(btn=>{
   btn.addEventListener('click', (ev)=>{
