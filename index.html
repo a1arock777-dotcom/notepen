@@ -197,6 +197,19 @@
     background:transparent; color:var(--text); font-size:12.5px; cursor:pointer;
   }
   .eraser-opt.sel{ background:var(--accent); color:white; font-weight:700; }
+  #eraser-confirm-popover{
+    position:fixed; background:var(--surface);
+    border:1px solid var(--border); border-radius:14px; box-shadow:var(--shadow); z-index:210;
+    padding:12px; width:230px; display:none;
+  }
+  #eraser-confirm-popover.open{ display:block; }
+  #eraser-confirm-msg{ font-size:12.5px; line-height:1.5; margin:0 0 10px; color:var(--text); }
+  .eraser-confirm-btns{ display:flex; gap:8px; }
+  .eraser-confirm-btns button{
+    flex:1 1 0; padding:8px; border-radius:10px; border:none; font-size:12.5px; font-weight:700; cursor:pointer;
+  }
+  #eraser-confirm-cancel{ background:var(--surface-2); color:var(--text); }
+  #eraser-confirm-ok{ background:var(--danger); color:white; }
   .divider{ width:1px; height:22px; background:var(--border); margin:0 4px; flex:0 0 auto; }
   .swatch{
     width:20px; height:20px; border-radius:50%; border:2px solid var(--border); flex:0 0 auto; cursor:pointer;
@@ -493,6 +506,13 @@
             <button type="button" class="eraser-opt" data-eraser-mode="select">✏️ 부분 지우기 (기본)</button>
             <button type="button" class="eraser-opt" data-eraser-mode="clearPage">🗒️ 현재 페이지 전체 지우기</button>
             <button type="button" class="eraser-opt" data-eraser-mode="clearAll">🧾 현재 페이지만 남기고 전체 삭제</button>
+          </div>
+          <div id="eraser-confirm-popover">
+            <p id="eraser-confirm-msg"></p>
+            <div class="eraser-confirm-btns">
+              <button type="button" id="eraser-confirm-cancel">취소</button>
+              <button type="button" id="eraser-confirm-ok">확인</button>
+            </div>
           </div>
         </div>
         <button class="icon-btn" data-tool="mask" title="가리기(마스킹)">▭</button>
@@ -1588,23 +1608,25 @@ function clearPageWriting(pageIdx, redraw){
 }
 function performEraserAction(mode){
   if(mode === 'clearPage'){
-    if(!confirm(`지금 보고 있는 페이지(${curPage+1}페이지)의 필기 내용을 모두 지우고 백지로 만들까요?`)) return;
-    clearPageWriting(curPage, true);
-    scheduleSave();
-    toast('현재 페이지를 백지로 만들었어요');
+    showEraserConfirm(`지금 보고 있는 페이지(${curPage+1}페이지)의 필기 내용을 모두 지우고 백지로 만들까요?`, ()=>{
+      clearPageWriting(curPage, true);
+      scheduleSave();
+      toast('현재 페이지를 백지로 만들었어요');
+    });
   } else if(mode === 'clearAll'){
     const multi = current.pages.length > 1;
     const msg = multi
       ? `지금 보고 있는 페이지(${curPage+1}페이지)만 남기고 나머지 페이지를 전부 삭제할까요? 남는 페이지도 백지가 되고, 이 작업은 되돌릴 수 없어요.`
       : `현재 페이지의 필기 내용을 모두 지우고 백지로 만들까요?`;
-    if(!confirm(msg)) return;
-    current.pages = [current.pages[curPage]];
-    curPage = 0; activePageIdx = 0;
-    history.length = 0; redoStack.length = 0; // 페이지가 통째로 사라져서 이전 undo 기록의 페이지 번호가 더 이상 유효하지 않음
-    clearPageWriting(0, false);
-    renderAllPages();
-    scheduleSave();
-    toast(multi ? '현재 페이지만 남기고 모두 지웠어요' : '현재 페이지를 백지로 만들었어요');
+    showEraserConfirm(msg, ()=>{
+      current.pages = [current.pages[curPage]];
+      curPage = 0; activePageIdx = 0;
+      history.length = 0; redoStack.length = 0; // 페이지가 통째로 사라져서 이전 undo 기록의 페이지 번호가 더 이상 유효하지 않음
+      clearPageWriting(0, false);
+      renderAllPages();
+      scheduleSave();
+      toast(multi ? '현재 페이지만 남기고 모두 지웠어요' : '현재 페이지를 백지로 만들었어요');
+    });
   }
 }
 
@@ -2197,16 +2219,42 @@ document.querySelectorAll('[data-tool]:not([data-tool="eraser"])').forEach(btn=>
 document.querySelector('[data-tool="pen"]').classList.add('active');
 
 /* ---------- 지우개 버튼: 짧게 누르면 현재 모드로 동작, 이미 지우개가 선택된 상태에서 다시 누르면 모드 선택 메뉴 ---------- */
-function positionEraserPopover(){
+function positionBelowEraser(el, width){
   const wrap = document.getElementById('eraser-wrap');
-  const pop = document.getElementById('eraser-popover');
   const rect = wrap.getBoundingClientRect();
-  const popW = 230;
-  let left = rect.left + rect.width/2 - popW/2;
-  left = Math.max(8, Math.min(left, window.innerWidth - popW - 8));
-  pop.style.left = left + 'px';
-  pop.style.top = (rect.bottom + 6) + 'px';
+  let left = rect.left + rect.width/2 - width/2;
+  left = Math.max(8, Math.min(left, window.innerWidth - width - 8));
+  el.style.left = left + 'px';
+  el.style.top = (rect.bottom + 6) + 'px';
 }
+function positionEraserPopover(){
+  positionBelowEraser(document.getElementById('eraser-popover'), 230);
+}
+// 삭제/전체 지우기처럼 되돌리기 어려운 동작은 화면 가운데 뜨는 기본 confirm() 대신,
+// 지우개 아이콘 바로 아래에 뜨는 경고 팝오버로 확인받음 (버튼과 가까워서 눈에 잘 띔).
+let eraserConfirmCallback = null;
+function showEraserConfirm(message, onConfirm){
+  closeEraserPopover();
+  document.getElementById('eraser-confirm-msg').textContent = message;
+  positionBelowEraser(document.getElementById('eraser-confirm-popover'), 230);
+  document.getElementById('eraser-confirm-popover').classList.add('open');
+  eraserConfirmCallback = onConfirm;
+}
+function closeEraserConfirm(){
+  document.getElementById('eraser-confirm-popover').classList.remove('open');
+  eraserConfirmCallback = null;
+}
+document.getElementById('eraser-confirm-cancel').addEventListener('click', (ev)=>{
+  ev.stopPropagation();
+  closeEraserConfirm();
+});
+document.getElementById('eraser-confirm-ok').addEventListener('click', (ev)=>{
+  ev.stopPropagation();
+  const cb = eraserConfirmCallback;
+  closeEraserConfirm();
+  if(cb) cb();
+});
+document.getElementById('eraser-confirm-popover').addEventListener('click', (ev)=> ev.stopPropagation());
 function renderEraserPopover(){
   document.querySelectorAll('.eraser-opt').forEach(b=> b.classList.toggle('sel', b.dataset.eraserMode === eraserMode));
   document.getElementById('btn-eraser').classList.toggle('risky', eraserMode !== 'select');
@@ -2251,9 +2299,10 @@ document.querySelectorAll('.eraser-opt').forEach(btn=>{
   });
 });
 document.getElementById('eraser-popover').addEventListener('click', (ev)=> ev.stopPropagation());
-document.addEventListener('click', ()=> closeEraserPopover());
+document.addEventListener('click', ()=>{ closeEraserPopover(); closeEraserConfirm(); });
 window.addEventListener('resize', ()=>{
   if(document.getElementById('eraser-popover').classList.contains('open')) positionEraserPopover();
+  if(document.getElementById('eraser-confirm-popover').classList.contains('open')) positionBelowEraser(document.getElementById('eraser-confirm-popover'), 230);
 });
 document.querySelectorAll('#color-group .swatch').forEach(sw=>{
   sw.addEventListener('click', ()=>{
