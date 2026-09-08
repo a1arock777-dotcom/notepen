@@ -181,6 +181,22 @@
     background:var(--surface); border-bottom:1px solid var(--border); z-index:10;
   }
   .tool-group{ display:flex; align-items:center; gap:2px; background:var(--surface-2); border-radius:11px; padding:2px; flex:0 0 auto; }
+  #eraser-wrap{ position:relative; flex:0 0 auto; }
+  #btn-eraser{ position:relative; }
+  #btn-eraser.risky::after{
+    content:''; position:absolute; top:1px; right:1px; width:6px; height:6px; border-radius:50%; background:var(--danger);
+  }
+  #eraser-popover{
+    position:fixed; background:var(--surface);
+    border:1px solid var(--border); border-radius:14px; box-shadow:var(--shadow); z-index:200;
+    padding:6px; width:230px; display:none;
+  }
+  #eraser-popover.open{ display:block; }
+  .eraser-opt{
+    display:block; width:100%; text-align:left; padding:9px 10px; border-radius:10px; border:none;
+    background:transparent; color:var(--text); font-size:12.5px; cursor:pointer;
+  }
+  .eraser-opt.sel{ background:var(--accent); color:white; font-weight:700; }
   .divider{ width:1px; height:22px; background:var(--border); margin:0 4px; flex:0 0 auto; }
   .swatch{
     width:20px; height:20px; border-radius:50%; border:2px solid var(--border); flex:0 0 auto; cursor:pointer;
@@ -471,7 +487,14 @@
         <button class="icon-btn" data-tool="pan" title="이동">✋</button>
         <button class="icon-btn" data-tool="pen" title="펜">🖊️</button>
         <button class="icon-btn" data-tool="pencil" title="연필">✏️</button>
-        <button class="icon-btn" data-tool="eraser" title="지우개">🧹</button>
+        <div id="eraser-wrap">
+          <button class="icon-btn" data-tool="eraser" id="btn-eraser" title="지우개">🧹</button>
+          <div id="eraser-popover">
+            <button type="button" class="eraser-opt" data-eraser-mode="select">✏️ 부분 지우기 (기본)</button>
+            <button type="button" class="eraser-opt" data-eraser-mode="clearPage">🗒️ 현재 페이지 전체 지우기</button>
+            <button type="button" class="eraser-opt" data-eraser-mode="clearAll">🧾 현재 페이지만 남기고 전체 삭제</button>
+          </div>
+        </div>
         <button class="icon-btn" data-tool="mask" title="가리기(마스킹)">▭</button>
         <button class="icon-btn" data-tool="highlight" title="형광펜">🖍️</button>
       </div>
@@ -864,6 +887,7 @@ let current = null;      // current notebook object (in-memory, mutable)
 let curPage = 0;
 let activeLayerIdx = 0;
 let tool = 'pen';
+let eraserMode = 'select'; // 지우개 버튼의 동작 모드: 'select'(부분 지우기, 기본) | 'clearPage'(현재 페이지 전체 지우기) | 'clearAll'(현재 페이지만 남기고 전체 삭제)
 let color = '#1c1c1c';
 let size = 3;
 let highlightColor = '#ff3b30';
@@ -1548,6 +1572,42 @@ function pushHistory(snap){
   redoStack.length = 0;
 }
 
+/* ---------- 지우개 옵션: 현재 페이지 전체 지우기 / 현재 페이지만 남기고 전체 삭제 ---------- */
+// 페이지의 모든 레이어에서 필기(선/마스크)만 지워서 백지로 만듦. 이미지·바로가기 아이콘은 그대로 둠.
+// redraw=false로 넘기면 undo 기록과 화면 다시 그리기를 생략함(어차피 곧 renderAllPages로 전체를 새로 그릴 때 사용).
+function clearPageWriting(pageIdx, redraw){
+  if(redraw === undefined) redraw = true;
+  const page = current.pages[pageIdx];
+  if(!page) return;
+  page.layers.forEach((layer, li)=>{
+    if(redraw && (layer.strokes.length || layer.masks.length)) pushHistory(snapshotLayer(pageIdx, li));
+    layer.strokes = [];
+    layer.masks = [];
+    if(redraw) redrawLayerCanvas(pageIdx, li);
+  });
+}
+function performEraserAction(mode){
+  if(mode === 'clearPage'){
+    if(!confirm(`지금 보고 있는 페이지(${curPage+1}페이지)의 필기 내용을 모두 지우고 백지로 만들까요?`)) return;
+    clearPageWriting(curPage, true);
+    scheduleSave();
+    toast('현재 페이지를 백지로 만들었어요');
+  } else if(mode === 'clearAll'){
+    const multi = current.pages.length > 1;
+    const msg = multi
+      ? `지금 보고 있는 페이지(${curPage+1}페이지)만 남기고 나머지 페이지를 전부 삭제할까요? 남는 페이지도 백지가 되고, 이 작업은 되돌릴 수 없어요.`
+      : `현재 페이지의 필기 내용을 모두 지우고 백지로 만들까요?`;
+    if(!confirm(msg)) return;
+    current.pages = [current.pages[curPage]];
+    curPage = 0; activePageIdx = 0;
+    history.length = 0; redoStack.length = 0; // 페이지가 통째로 사라져서 이전 undo 기록의 페이지 번호가 더 이상 유효하지 않음
+    clearPageWriting(0, false);
+    renderAllPages();
+    scheduleSave();
+    toast(multi ? '현재 페이지만 남기고 모두 지웠어요' : '현재 페이지를 백지로 만들었어요');
+  }
+}
+
 /* ---------- 노트 위에 붙이는 이미지 ---------- */
 function addImageToPage(pageIdx, file){
   if(!file || !file.type || file.type.indexOf('image/')!==0){ toast('이미지 파일만 추가할 수 있어요.'); return; }
@@ -2126,7 +2186,7 @@ function updateToolUI(){
   document.getElementById('highlight-opacity-divider').style.display = isHighlight ? 'block' : 'none';
   document.getElementById('highlight-opacity-wrap').style.display = isHighlight ? 'flex' : 'none';
 }
-document.querySelectorAll('[data-tool]').forEach(btn=>{
+document.querySelectorAll('[data-tool]:not([data-tool="eraser"])').forEach(btn=>{
   btn.addEventListener('click', ()=>{
     tool = btn.dataset.tool;
     document.querySelectorAll('[data-tool]').forEach(b=>b.classList.toggle('active', b===btn));
@@ -2135,6 +2195,66 @@ document.querySelectorAll('[data-tool]').forEach(btn=>{
   });
 });
 document.querySelector('[data-tool="pen"]').classList.add('active');
+
+/* ---------- 지우개 버튼: 짧게 누르면 현재 모드로 동작, 이미 지우개가 선택된 상태에서 다시 누르면 모드 선택 메뉴 ---------- */
+function positionEraserPopover(){
+  const wrap = document.getElementById('eraser-wrap');
+  const pop = document.getElementById('eraser-popover');
+  const rect = wrap.getBoundingClientRect();
+  const popW = 230;
+  let left = rect.left + rect.width/2 - popW/2;
+  left = Math.max(8, Math.min(left, window.innerWidth - popW - 8));
+  pop.style.left = left + 'px';
+  pop.style.top = (rect.bottom + 6) + 'px';
+}
+function renderEraserPopover(){
+  document.querySelectorAll('.eraser-opt').forEach(b=> b.classList.toggle('sel', b.dataset.eraserMode === eraserMode));
+  document.getElementById('btn-eraser').classList.toggle('risky', eraserMode !== 'select');
+  const titles = { select:'지우개 (부분 지우기)', clearPage:'지우개 (현재 페이지 전체 지우기)', clearAll:'지우개 (현재 페이지만 남기고 전체 삭제)' };
+  document.getElementById('btn-eraser').title = titles[eraserMode] || '지우개';
+}
+function openEraserPopover(){
+  renderEraserPopover();
+  positionEraserPopover();
+  document.getElementById('eraser-popover').classList.add('open');
+}
+function closeEraserPopover(){
+  document.getElementById('eraser-popover').classList.remove('open');
+}
+renderEraserPopover();
+const btnEraser = document.getElementById('btn-eraser');
+btnEraser.addEventListener('click', (ev)=>{
+  ev.stopPropagation();
+  const wasActive = tool === 'eraser';
+  tool = 'eraser';
+  document.querySelectorAll('[data-tool]').forEach(b=>b.classList.toggle('active', b===btnEraser));
+  stackEl.style.cursor = 'crosshair';
+  updateToolUI();
+  if(!wasActive){
+    // 다른 도구에서 지우개로 막 전환한 경우: 지금 선택되어 있는 모드를 곧바로 적용함
+    closeEraserPopover();
+    if(eraserMode !== 'select') performEraserAction(eraserMode);
+  } else {
+    // 이미 지우개가 선택된 상태에서 다시 누르면, 모드를 바꿀 수 있는 옵션 메뉴를 열고/닫음
+    const pop = document.getElementById('eraser-popover');
+    const willOpen = !pop.classList.contains('open');
+    if(willOpen) openEraserPopover(); else closeEraserPopover();
+  }
+});
+document.querySelectorAll('.eraser-opt').forEach(btn=>{
+  btn.addEventListener('click', (ev)=>{
+    ev.stopPropagation();
+    eraserMode = btn.dataset.eraserMode;
+    renderEraserPopover();
+    closeEraserPopover();
+    if(eraserMode !== 'select') performEraserAction(eraserMode);
+  });
+});
+document.getElementById('eraser-popover').addEventListener('click', (ev)=> ev.stopPropagation());
+document.addEventListener('click', ()=> closeEraserPopover());
+window.addEventListener('resize', ()=>{
+  if(document.getElementById('eraser-popover').classList.contains('open')) positionEraserPopover();
+});
 document.querySelectorAll('#color-group .swatch').forEach(sw=>{
   sw.addEventListener('click', ()=>{
     color = sw.dataset.color;
