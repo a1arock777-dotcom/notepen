@@ -666,8 +666,10 @@ if(!FIREBASE_SDK_AVAILABLE) console.error('firebase SDK를 불러오지 못했�
 // 캔버스의 실제 해상도를 화면 표시 크기보다 RES_SCALE배 높게 렌더링.
 // (표시 크기는 그대로 두고 내부 해상도만 올려서, 1000%까지 확대해도 PDF/필기가 뭉개지지 않도록 함)
 const RES_SCALE = 3;
-// 페이지 캔버스(배경/레이어)의 z-index 시작값. .page-image(z-index:15)보다 항상 높게 잡아서,
+// 필기 레이어 캔버스의 z-index 시작값. .page-image(z-index:15)보다 항상 높게 잡아서,
 // 붙여넣은 이미지 위/아래 어디서 필기해도 필기가 이미지에 가려지지 않고 항상 위에 보이게 함.
+// (배경/PDF를 그리는 baseCanvas는 여기 포함하지 않음 - 배경은 불투명하게 전체를 칠하므로
+// 이미지보다 위로 올리면 이미지 전체를 가려버림. 쌓는 순서는 항상 배경 < 이미지 < 필기 레이어.)
 const CANVAS_Z_BASE = 20;
 
 /* ================= IndexedDB helpers ================= */
@@ -1295,7 +1297,7 @@ function buildBlockContent(block, idx){
   const baseCanvas = document.createElement('canvas');
   baseCanvas.width = page.width * RES_SCALE; baseCanvas.height = page.height * RES_SCALE;
   baseCanvas.style.width = page.width+'px'; baseCanvas.style.height = page.height+'px';
-  baseCanvas.style.zIndex = CANVAS_Z_BASE;
+  baseCanvas.style.zIndex = 0; // 배경/PDF는 이미지(z:15)보다도 아래, 항상 맨 밑에 깔림
   block.appendChild(baseCanvas);
   const bctx = baseCanvas.getContext('2d');
   paintPageBackground(bctx, page, baseCanvas.width, baseCanvas.height);
