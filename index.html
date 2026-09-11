@@ -1994,6 +1994,7 @@ function setPlacingShortcut(v){
 }
 
 function onPointerDown(e){
+  stopMomentumScroll(); // 미끄러지던 중에 새로 손이 닿으면 바로 붙잡히도록 관성 스크롤을 멈춤
   if(e.pointerType==='mouse' && e.button!==0) return;
   if(placingShortcut){
     e.preventDefault();
@@ -2046,6 +2047,7 @@ function onPointerDown(e){
     }
     panStart = {x:e.clientX, y:e.clientY, sl:wrapEl.scrollLeft, st:wrapEl.scrollTop};
     panOverscrollTriggered = false;
+    panVelSamples = [{x:e.clientX, y:e.clientY, t:performance.now()}]; // 관성 스크롤 속도 계산용 시작 샘플
     return;
   }
 
@@ -2068,6 +2070,37 @@ function onPointerDown(e){
 let panStart = null;
 let panOverscrollTriggered = false;
 const OVERSCROLL_THRESHOLD = 70; // 마지막 페이지 바닥 밑으로 이만큼(px) 더 끌면 새 페이지가 이어붙음
+
+// ---- 관성(미끄러지는) 스크롤 ----
+// 손으로 미는 동안의 최근 포인터 속도를 기록해뒀다가, 손을 떼는 순간 그 속도로 서서히 느려지며
+// 계속 스크롤되게 함. touch-action:none 때문에 브라우저 기본 관성 스크롤이 전혀 동작하지 않는
+// 구조라(패닝을 전부 JS로 직접 처리) 직접 구현이 필요함.
+let panVelSamples = [];
+let momentumRAF = null;
+function stopMomentumScroll(){
+  if(momentumRAF){ cancelAnimationFrame(momentumRAF); momentumRAF = null; }
+}
+function startMomentumScroll(vx, vy){
+  // vx, vy: 손을 뗀 순간의 포인터 속도(px/ms). 스크롤은 포인터 이동과 반대 방향으로 움직이므로 부호를 반대로 적용.
+  stopMomentumScroll();
+  const FRICTION_PER_FRAME = 0.95; // 16.7ms(60fps)마다 곱해지는 감쇠 계수 - 1에 가까울수록 오래 미끄러짐
+  const MIN_VELOCITY = 0.02; // 이보다 느려지면 멈춘 것으로 간주
+  let lastT = performance.now();
+  function step(now){
+    const dt = Math.min(48, now - lastT); // 탭 전환 등으로 프레임 간격이 크게 벌어져도 한 번에 너무 튀지 않게 상한을 둠
+    lastT = now;
+    const prevTop = wrapEl.scrollTop, prevLeft = wrapEl.scrollLeft;
+    wrapEl.scrollTop -= vy * dt;
+    wrapEl.scrollLeft -= vx * dt;
+    if(wrapEl.scrollTop === prevTop) vy = 0; // 위/아래 끝에 닿아 더 못 가면 그 방향 관성은 종료
+    if(wrapEl.scrollLeft === prevLeft) vx = 0;
+    const decay = Math.pow(FRICTION_PER_FRAME, dt / 16.67);
+    vx *= decay; vy *= decay;
+    if(Math.abs(vx) < MIN_VELOCITY && Math.abs(vy) < MIN_VELOCITY){ momentumRAF = null; return; }
+    momentumRAF = requestAnimationFrame(step);
+  }
+  momentumRAF = requestAnimationFrame(step);
+}
 function appendPageBySeamlessScroll(){
   // 페이지 전환(점프)이 아니라, 스크롤 중이던 자리에 이어서 새 페이지를 뒤에 붙인다 -> 두 페이지가 겹쳐 보이는 과도기가 자연스럽게 생김.
   if(current.type === 'pdf'){ toast('PDF 노트의 마지막 페이지예요.'); return; }
@@ -2109,6 +2142,10 @@ function onPointerMove(e){
     const targetTop = panStart.st - (e.clientY - panStart.y);
     wrapEl.scrollLeft = panStart.sl - (e.clientX - panStart.x);
     wrapEl.scrollTop = targetTop;
+
+    const nowT = performance.now();
+    panVelSamples.push({x:e.clientX, y:e.clientY, t:nowT});
+    while(panVelSamples.length > 1 && nowT - panVelSamples[0].t > 80) panVelSamples.shift();
 
     if(!panOverscrollTriggered){
       const maxScrollTop = Math.max(0, wrapEl.scrollHeight - wrapEl.clientHeight);
@@ -2211,6 +2248,19 @@ function onPointerUp(e){
   }
   touchDownInfo = null;
 
+  if(panStart){
+    // 손을 뗀 순간까지의 최근(80ms 이내) 포인터 속도로 관성 스크롤을 시작함
+    const nowT = performance.now();
+    while(panVelSamples.length > 1 && nowT - panVelSamples[0].t > 80) panVelSamples.shift();
+    const first = panVelSamples[0], last = panVelSamples[panVelSamples.length-1];
+    if(first && last && last.t > first.t){
+      const dt = last.t - first.t;
+      const vx = (last.x - first.x) / dt;
+      const vy = (last.y - first.y) / dt;
+      if(Math.abs(vx) > 0.03 || Math.abs(vy) > 0.03) startMomentumScroll(vx, vy);
+    }
+    panVelSamples = [];
+  }
   panStart = null;
   if(!drawing){ activeAction = null; return; }
   drawing = false;
