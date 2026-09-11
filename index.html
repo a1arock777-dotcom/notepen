@@ -258,7 +258,10 @@
     position:relative; margin:0 auto 26px; box-shadow:0 4px 22px rgba(0,0,0,0.25); background:white;
   }
   .page-block:last-child{ margin-bottom:0; }
-  .page-block canvas{ position:absolute; top:0; left:0; display:block; }
+  /* z-index를 이미지(.page-image)보다 높여서 필기가 항상 붙여넣은 이미지 위에 보이게 함.
+     pointer-events:none으로 클릭이 그대로 아래(이미지의 헤더/크기조절 손잡이 등)까지 통과하게 해서
+     이미지 드래그·크기조절은 여전히 되면서도, 필기 좌표 계산은 stackEl 레벨에서 처리하므로 영향 없음. */
+  .page-block canvas{ position:absolute; top:0; left:0; display:block; z-index:20; pointer-events:none; }
 
   #page-nav{
     position:fixed; right:8px; top:50%; transform:translateY(-50%); z-index:50;
@@ -309,8 +312,11 @@
   #quickmemo-canvas{ width:260px; height:190px; display:block; touch-action:none; background:#fffdf3; }
 
   /* ---------- 노트 위에 붙이는 이미지 ---------- */
+  /* z-index를 필기 캔버스(20)보다 낮춰서, 이미지를 붙인 뒤(또는 전에) 그 위에 펜/형광펜으로 필기하면
+     필기가 이미지에 가려지지 않고 항상 위에 보이도록 함. 헤더/크기조절 손잡이는 캔버스가
+     pointer-events:none이라 클릭이 그대로 통과해서 여전히 정상적으로 눌림. */
   .page-image{
-    position:absolute; z-index:55; border:1px solid rgba(0,0,0,0.15); border-radius:8px; overflow:hidden;
+    position:absolute; z-index:15; border:1px solid rgba(0,0,0,0.15); border-radius:8px; overflow:hidden;
     box-shadow:0 3px 8px rgba(0,0,0,0.22); background:white; display:flex; flex-direction:column;
   }
   .img-head{
