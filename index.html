@@ -258,10 +258,11 @@
     position:relative; margin:0 auto 26px; box-shadow:0 4px 22px rgba(0,0,0,0.25); background:white;
   }
   .page-block:last-child{ margin-bottom:0; }
-  /* z-index를 이미지(.page-image)보다 높여서 필기가 항상 붙여넣은 이미지 위에 보이게 함.
-     pointer-events:none으로 클릭이 그대로 아래(이미지의 헤더/크기조절 손잡이 등)까지 통과하게 해서
-     이미지 드래그·크기조절은 여전히 되면서도, 필기 좌표 계산은 stackEl 레벨에서 처리하므로 영향 없음. */
-  .page-block canvas{ position:absolute; top:0; left:0; display:block; z-index:20; pointer-events:none; }
+  /* z-index는 JS에서 캔버스마다 개별로 매김(CANVAS_Z_BASE 기준, 레이어 순서 유지하면서
+     .page-image보다 항상 높게). pointer-events:none으로 클릭이 그대로 아래(이미지의
+     헤더/크기조절 손잡이 등)까지 통과해서, 이미지 드래그·크기조절은 여전히 되면서도
+     필기 좌표 계산은 stackEl 레벨에서 처리하므로 영향 없음. */
+  .page-block canvas{ position:absolute; top:0; left:0; display:block; pointer-events:none; }
 
   #page-nav{
     position:fixed; right:8px; top:50%; transform:translateY(-50%); z-index:50;
@@ -665,6 +666,9 @@ if(!FIREBASE_SDK_AVAILABLE) console.error('firebase SDK를 불러오지 못했�
 // 캔버스의 실제 해상도를 화면 표시 크기보다 RES_SCALE배 높게 렌더링.
 // (표시 크기는 그대로 두고 내부 해상도만 올려서, 1000%까지 확대해도 PDF/필기가 뭉개지지 않도록 함)
 const RES_SCALE = 3;
+// 페이지 캔버스(배경/레이어)의 z-index 시작값. .page-image(z-index:15)보다 항상 높게 잡아서,
+// 붙여넣은 이미지 위/아래 어디서 필기해도 필기가 이미지에 가려지지 않고 항상 위에 보이게 함.
+const CANVAS_Z_BASE = 20;
 
 /* ================= IndexedDB helpers ================= */
 const DB_NAME = 'notepen_db', DB_VERSION = 1, STORE = 'notebooks';
@@ -1291,7 +1295,7 @@ function buildBlockContent(block, idx){
   const baseCanvas = document.createElement('canvas');
   baseCanvas.width = page.width * RES_SCALE; baseCanvas.height = page.height * RES_SCALE;
   baseCanvas.style.width = page.width+'px'; baseCanvas.style.height = page.height+'px';
-  baseCanvas.style.zIndex = 0;
+  baseCanvas.style.zIndex = CANVAS_Z_BASE;
   block.appendChild(baseCanvas);
   const bctx = baseCanvas.getContext('2d');
   paintPageBackground(bctx, page, baseCanvas.width, baseCanvas.height);
@@ -1307,7 +1311,7 @@ function buildBlockContent(block, idx){
     const c = document.createElement('canvas');
     c.width = page.width * RES_SCALE; c.height = page.height * RES_SCALE;
     c.style.width = page.width+'px'; c.style.height = page.height+'px';
-    c.style.zIndex = li+1;
+    c.style.zIndex = CANVAS_Z_BASE + li + 1;
     c.style.opacity = layer.visible ? '1' : '0';
     c.dataset.pageIdx = idx;
     c.dataset.layerIdx = li;
