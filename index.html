@@ -357,6 +357,19 @@
     0%, 100% { box-shadow:0 3px 8px rgba(0,0,0,0.22); transform:scale(1); }
     50% { box-shadow:0 0 0 6px var(--accent), 0 6px 16px rgba(0,0,0,0.35); transform:scale(1.25); }
   }
+
+  /* ---------- 펜으로 꾹 눌러서 클립보드 이미지 붙여넣기 ---------- */
+  .paste-btn{
+    position:fixed; z-index:90; transform:translate(-50%,-100%);
+    background:rgba(30,30,34,0.92); color:white; border:none; border-radius:999px;
+    padding:10px 16px; font-size:13.5px; font-weight:700; white-space:nowrap;
+    box-shadow:var(--shadow); cursor:pointer; touch-action:none; user-select:none;
+    animation: pastePop .14s ease;
+  }
+  @keyframes pastePop{
+    from{ transform:translate(-50%,-100%) scale(0.75); opacity:0; }
+    to{ transform:translate(-50%,-100%) scale(1); opacity:1; }
+  }
   /* ---------- Layers panel ---------- */
   #layers-panel{
     position:fixed; top:52px; right:0; bottom:0; width:250px; max-width:80vw; background:var(--surface);
@@ -1686,7 +1699,8 @@ function performEraserAction(mode){
 }
 
 /* ---------- 노트 위에 붙이는 이미지 ---------- */
-function addImageToPage(pageIdx, file){
+// centerAt: {x,y} (page 좌표계, zoom=1 기준) 을 넘기면 그 지점을 중심으로 배치하고, 생략하면 페이지 정중앙에 배치함
+function addImageToPage(pageIdx, file, centerAt){
   if(!file || !file.type || file.type.indexOf('image/')!==0){ toast('이미지 파일만 추가할 수 있어요.'); return; }
   const reader = new FileReader();
   reader.onload = ()=>{
@@ -1717,9 +1731,12 @@ function addImageToPage(pageIdx, file){
       let h = w * ((probe.naturalHeight || w) / (probe.naturalWidth || w));
       const maxH = page.height * 0.55;
       if(h > maxH){ h = maxH; w = h * ((probe.naturalWidth || h) / (probe.naturalHeight || h)); }
+      const cx = centerAt ? centerAt.x : page.width/2;
+      const cy = centerAt ? centerAt.y : page.height/2;
       const im = {
         id: 'img_'+Date.now()+'_'+Math.random().toString(36).slice(2,6),
-        x: Math.max(0, (page.width - w)/2), y: Math.max(0, (page.height - h)/2),
+        x: Math.max(0, Math.min(page.width - w, cx - w/2)),
+        y: Math.max(0, Math.min(page.height - h, cy - h/2)),
         w, h, src: finalSrc
       };
       page.images.push(im);
@@ -1831,6 +1848,110 @@ function createImageElement(page, pageIdx, im){
   });
 
   return el;
+}
+
+/* ---------- 펜으로 꾹 눌러서 클립보드 이미지 붙여넣기 ---------- */
+// 갤럭시 탭 S펜의 "AI 셀렉트" 등으로 캡처한 이미지가 클립보드에 있을 때,
+// 노트 위에서 펜을 꾹 누르고 있으면(필기/패닝 등 의도가 아니라고 판단되면) "붙여넣기" 아이콘을 띄우고,
+// 탭하면 클립보드의 이미지를 그 자리에 바로 붙여넣음.
+const PASTE_LONG_PRESS_MS = 550;
+const PASTE_LONG_PRESS_MOVE_LIMIT = 12; // 화면(px) 기준 - 이 이상 움직이면 필기/이동 의도로 보고 취소함
+let pasteLongPressTimer = null;
+let pasteLongPressPointerId = null;
+let pasteLongPressOrigin = null;
+function disarmPasteLongPress(){
+  if(pasteLongPressTimer){ clearTimeout(pasteLongPressTimer); pasteLongPressTimer = null; }
+  pasteLongPressPointerId = null;
+  pasteLongPressOrigin = null;
+}
+function armPasteLongPress(e, action, pageIdx){
+  disarmPasteLongPress();
+  // 손가락 꾹 누르기는 스크롤 관성/더블탭 등 기존 제스처와 겹치므로 펜·마우스에서만 동작시킴
+  if(e.pointerType !== 'pen' && e.pointerType !== 'mouse') return;
+  pasteLongPressPointerId = e.pointerId;
+  pasteLongPressOrigin = {clientX:e.clientX, clientY:e.clientY};
+  const pid = e.pointerId, cx = e.clientX, cy = e.clientY;
+  pasteLongPressTimer = setTimeout(()=>{
+    pasteLongPressTimer = null;
+    pasteLongPressPointerId = null;
+    handlePasteLongPress(pid, cx, cy, action, pageIdx);
+  }, PASTE_LONG_PRESS_MS);
+}
+function handlePasteLongPress(pid, clientX, clientY, action, pageIdx){
+  if(drawing){
+    // 꾹 누르는 순간 펜이 이미 점을 찍거나(선/지우기/마스킹 시작) 손을 댄 흔적을 만들었을 수 있으므로,
+    // 실제로는 아무것도 안 그린 것처럼 그 직전 상태로 조용히 되돌림(undo 기록에도 남기지 않음)
+    const snap = history.pop();
+    if(snap){
+      const layer = current.pages[snap.pageIdx].layers[snap.layerIdx];
+      layer.strokes = snap.strokes; layer.masks = snap.masks;
+      redrawLayerCanvas(snap.pageIdx, snap.layerIdx);
+    }
+    drawing = false; currentStroke = null; highlightSnapshot = null; maskStart = null;
+  }
+  activeAction = null;
+  panStart = null;
+  const block = stackEl.querySelector(`.page-block[data-page-idx="${pageIdx}"]`);
+  if(!block) return;
+  const rect = block.getBoundingClientRect();
+  const x = (clientX - rect.left) / zoom;
+  const y = (clientY - rect.top) / zoom;
+  showPasteButton(pageIdx, x, y, clientX, clientY);
+  if(navigator.vibrate){ try{ navigator.vibrate(15); }catch(err){ /* ignore */ } }
+}
+let pasteBtnEl = null;
+let pasteBtnOutsideHandler = null;
+let pasteBtnAutoHideTimer = null;
+function removePasteButton(){
+  if(pasteBtnEl){ pasteBtnEl.remove(); pasteBtnEl = null; }
+  if(pasteBtnOutsideHandler){ document.removeEventListener('pointerdown', pasteBtnOutsideHandler, true); pasteBtnOutsideHandler = null; }
+  if(pasteBtnAutoHideTimer){ clearTimeout(pasteBtnAutoHideTimer); pasteBtnAutoHideTimer = null; }
+}
+function showPasteButton(pageIdx, pageX, pageY, clientX, clientY){
+  removePasteButton();
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'paste-btn';
+  btn.textContent = '📋 붙여넣기';
+  btn.style.left = clientX + 'px';
+  btn.style.top = Math.max(46, clientY - 14) + 'px';
+  document.body.appendChild(btn);
+  pasteBtnEl = btn;
+  btn.addEventListener('pointerdown', (e)=> e.stopPropagation());
+  btn.addEventListener('click', (e)=>{
+    e.stopPropagation();
+    performPasteAt(pageIdx, pageX, pageY);
+  });
+  pasteBtnOutsideHandler = (e)=>{
+    if(e.target === btn) return;
+    removePasteButton();
+  };
+  // 이 제스처를 끝낸 pointerup/click 자체가 바로 바깥 탭으로 걸리지 않도록 다음 tick부터 감지 시작
+  setTimeout(()=>{
+    document.addEventListener('pointerdown', pasteBtnOutsideHandler, true);
+  }, 0);
+  pasteBtnAutoHideTimer = setTimeout(removePasteButton, 6000);
+}
+async function performPasteAt(pageIdx, x, y){
+  removePasteButton();
+  if(!navigator.clipboard || !navigator.clipboard.read){
+    toast('이 브라우저에서는 클립보드 붙여넣기를 지원하지 않아요.');
+    return;
+  }
+  let blob = null;
+  try{
+    const items = await navigator.clipboard.read();
+    for(const item of items){
+      const type = item.types && item.types.find(t => t.indexOf('image/')===0);
+      if(type){ blob = await item.getType(type); break; }
+    }
+  }catch(err){
+    console.error('클립보드 읽기 실패', err);
+    toast('클립보드 접근 권한이 필요해요. 다시 시도해주세요.');
+    return;
+  }
+  if(!blob){ toast('클립보드에 이미지가 없어요. 캡처 후 다시 시도해주세요.'); return; }
+  addImageToPage(pageIdx, blob, {x, y});
 }
 
 /* ---------- 노트 위에 붙이는 새 노트 바로가기 아이콘 ---------- */
@@ -2038,6 +2159,7 @@ function onPointerDown(e){
   activeAction = resolveAction(e);
   activePageIdx = pageIdxFromEvent(e);
   ensureBlockBuilt(activePageIdx); // 지연 렌더링으로 아직 안 그려진 페이지일 수 있으니 미리 채워둠
+  armPasteLongPress(e, activeAction, activePageIdx); // 펜/마우스로 꾹 누르면 클립보드 이미지 붙여넣기 아이콘을 띄움
   strokeCanvas = hitLayerCanvas();
   strokeCtx = strokeCanvas ? strokeCanvas.getContext('2d') : null;
   const {x,y} = coordFromEvent(e, strokeCanvas);
@@ -2125,6 +2247,10 @@ function appendPageBySeamlessScroll(){
   toast('새 페이지가 이어졌어요');
 }
 function onPointerMove(e){
+  if(pasteLongPressPointerId === e.pointerId && pasteLongPressOrigin){
+    const dx = e.clientX - pasteLongPressOrigin.clientX, dy = e.clientY - pasteLongPressOrigin.clientY;
+    if(Math.hypot(dx,dy) > PASTE_LONG_PRESS_MOVE_LIMIT) disarmPasteLongPress();
+  }
   if(activePointers.has(e.pointerId)){
     activePointers.set(e.pointerId, {x:e.clientX, y:e.clientY, type:e.pointerType});
   }
@@ -2233,6 +2359,7 @@ function onPointerMove(e){
   }
 }
 function onPointerUp(e){
+  if(pasteLongPressPointerId === e.pointerId) disarmPasteLongPress();
   activePointers.delete(e.pointerId);
 
   if(pinchActive){
