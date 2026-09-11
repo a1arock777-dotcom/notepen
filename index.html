@@ -1284,6 +1284,29 @@ function ensureBlockBuilt(idx){
   const block = stackEl.querySelector(`.page-block[data-page-idx="${idx}"]`);
   if(block && block.dataset.built !== '1') buildBlockContent(block, idx);
 }
+// 다 그려진 캔버스를 다시 비워서 placeholder 상태로 되돌림 (메모리 회수용).
+// 페이지 데이터(page.layers/images 등)는 그대로 남아있으니 나중에 다시 필요해지면 buildBlockContent로 똑같이 다시 그릴 수 있음.
+function unbuildBlock(idx){
+  const block = stackEl.querySelector(`.page-block[data-page-idx="${idx}"]`);
+  if(!block || block.dataset.built !== '1') return;
+  const page = current.pages[idx];
+  if(!page) return;
+  block.dataset.built = '0';
+  block.innerHTML = '';
+  block.style.background = page.bgColor || '#ffffff';
+}
+// 페이지가 아주 많은 노트(특히 대용량 PDF)를 끝까지 넘기거나 멀리 점프하면, 지나온 페이지들의
+// 고해상도 캔버스(RES_SCALE배 해상도 x 레이어 수 + PDF 렌더 캔버스)가 전부 메모리에 계속 쌓여서
+// 결국 브라우저 탭이 메모리 부족으로 꺼져버림. 지금 보고 있는 페이지에서 너무 멀어진 페이지는
+// 다시 비워서(unbuildBlock) 메모리를 회수하고, 필요해지면(스크롤로 다시 가까워지면) 자동으로 다시 그려지게 함.
+const KEEP_BUILT_RADIUS = 15;
+function pruneFarBlocks(){
+  if(!current) return;
+  stackEl.querySelectorAll('.page-block[data-built="1"]').forEach(b=>{
+    const idx = parseInt(b.dataset.pageIdx, 10);
+    if(Math.abs(idx - curPage) > KEEP_BUILT_RADIUS) unbuildBlock(idx);
+  });
+}
 let lazyObserver = null;
 function setupLazyBuildObserver(){
   if(lazyObserver) lazyObserver.disconnect();
@@ -1345,13 +1368,22 @@ function updatePageIndicatorFromScroll(){
     if(document.getElementById('layers-panel').classList.contains('open')) refreshLayersPanel();
   }
   updatePageIndicatorDisplay();
+  pruneFarBlocks();
 }
 function scrollToPage(idx){
   const block = stackEl.querySelector(`.page-block[data-page-idx="${idx}"]`);
   if(!block) return;
+  // 페이지 번호를 입력해서 멀리 점프할 때 'smooth'로 애니메이션하면, 스크롤이 지나가는 중간의
+  // 모든 페이지가 화면 근처를 스쳐 지나가면서 IntersectionObserver에 걸려 전부 고해상도로
+  // 그려져버림(예: 1페이지 -> 114페이지로 이동하면 그 사이 113페이지가 전부 그려짐) -> 메모리 부족으로
+  // 노트 앱이 꺼지는 원인이 됨. 점프는 중간 페이지를 그릴 필요가 없으니 즉시 이동으로 바꿈.
+  ensureBlockBuilt(idx);
   const wrapRect = wrapEl.getBoundingClientRect();
   const blockRect = block.getBoundingClientRect();
-  wrapEl.scrollTo({ top: wrapEl.scrollTop + (blockRect.top - wrapRect.top) - 12, behavior:'smooth' });
+  wrapEl.scrollTo({ top: wrapEl.scrollTop + (blockRect.top - wrapRect.top) - 12, behavior:'auto' });
+  curPage = idx;
+  updatePageIndicatorDisplay();
+  pruneFarBlocks();
 }
 
 function drawLayer(ctx, layer){
