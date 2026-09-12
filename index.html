@@ -549,7 +549,6 @@
       <div class="tool-group">
         <button class="icon-btn" data-tool="pan" title="이동">✋</button>
         <button class="icon-btn" data-tool="pen" title="펜">🖊️</button>
-        <button class="icon-btn" data-tool="pencil" title="연필">✏️</button>
         <div id="eraser-wrap">
           <button class="icon-btn" data-tool="eraser" id="btn-eraser" title="지우개">🧹</button>
           <div id="eraser-popover">
@@ -565,14 +564,15 @@
             </div>
           </div>
         </div>
-        <button class="icon-btn" data-tool="mask" title="가리기(마스킹)">▭</button>
         <button class="icon-btn" data-tool="highlight" title="형광펜">🖍️</button>
+        <button class="icon-btn" data-tool="mask" title="도형(가리기·마스킹)">▭</button>
       </div>
       <div class="divider"></div>
       <button class="icon-btn" id="btn-straight-line" title="수평으로 긋기(토글)">📏</button>
       <div class="divider"></div>
       <div class="tool-group" id="color-group">
         <div class="swatch sel" style="background:#1c1c1c" data-color="#1c1c1c" title="검정"></div>
+        <div class="swatch" style="background:#e02020" data-color="#e02020" title="빨강"></div>
         <div class="swatch" style="background:#d9622b" data-color="#d9622b" title="주황"></div>
         <div class="swatch" style="background:#2b6bd9" data-color="#2b6bd9" title="파랑"></div>
         <div class="swatch" style="background:#2e9e5b" data-color="#2e9e5b" title="초록"></div>
@@ -1488,12 +1488,22 @@ function unbuildBlock(idx){
 // 고해상도 캔버스(RES_SCALE배 해상도 x 레이어 수 + PDF 렌더 캔버스)가 전부 메모리에 계속 쌓여서
 // 결국 브라우저 탭이 메모리 부족으로 꺼져버림. 지금 보고 있는 페이지에서 너무 멀어진 페이지는
 // 다시 비워서(unbuildBlock) 메모리를 회수하고, 필요해지면(스크롤로 다시 가까워지면) 자동으로 다시 그려지게 함.
-const KEEP_BUILT_RADIUS = 15;
+// 페이지 한 장당 (배경 캔버스 + 레이어 캔버스) x RES_SCALE^2 픽셀이 메모리에 올라감.
+// 예: PDF 페이지(1190x1684 CSS px)는 캔버스 3570x5052 = 18MP -> 배경+레이어 2장이면 페이지당 약 137MB.
+// 일반 빈 노트 페이지(1000x1350)는 페이지당 약 93MB. 그래서 큰 페이지(주로 PDF)일수록
+// 남겨두는 페이지 수를 줄여야 필기 중에 브라우저가 메모리/합성 부담으로 버벅이지 않음.
+function keepBuiltRadius(){
+  if(!current || !current.pages.length) return 6;
+  const p = current.pages[Math.min(curPage, current.pages.length-1)] || current.pages[0];
+  const area = (p.width || 1000) * (p.height || 1350);
+  return area > 1600000 ? 2 : 6;
+}
 function pruneFarBlocks(){
   if(!current) return;
+  const radius = keepBuiltRadius();
   stackEl.querySelectorAll('.page-block[data-built="1"]').forEach(b=>{
     const idx = parseInt(b.dataset.pageIdx, 10);
-    if(Math.abs(idx - curPage) > KEEP_BUILT_RADIUS) unbuildBlock(idx);
+    if(Math.abs(idx - curPage) > radius) unbuildBlock(idx);
   });
 }
 let lazyObserver = null;
