@@ -1309,7 +1309,11 @@ async function openNotebook(id){
   // 찾는 노트가 없으면(예: 바로가기 아이콘이 가리키던 노트가 삭제된 경우) 지금 보던 노트를 그대로 유지함
   if(!found){ toast('노트를 찾을 수 없어요.'); return; }
   current = found;
-  curPage = 0; activeLayerIdx = 0; zoom = 1;
+  // 이 기기에서 마지막으로 보던 위치(페이지 수가 줄어든 경우 등 범위를 벗어난 기록은 무시)
+  const lastPos = getLastPos(id);
+  const validLast = (lastPos && typeof lastPos.p === 'number' && lastPos.p >= 0 && lastPos.p < found.pages.length) ? lastPos : null;
+  curPage = validLast ? validLast.p : 0;
+  activeLayerIdx = 0; zoom = 1;
   history.length = 0; redoStack.length = 0;
   document.getElementById('title-input').value = current.title;
   updateNoteSyncBtn();
@@ -1357,7 +1361,15 @@ async function openNotebook(id){
   libraryEl.style.display = 'none';
   editorEl.style.display = 'flex';
   renderAllPages();
-  wrapEl.scrollTop = 0;
+  // 마지막으로 보던 페이지/위치에서 이어서 열기 (기록이 없으면 맨 위)
+  if(validLast && (curPage > 0 || validLast.o > 0)){
+    scrollToPage(curPage);
+    if(validLast.o > 0) wrapEl.scrollTop += validLast.o * zoom;
+    updatePageIndicatorFromScroll();
+    if(curPage > 0) toast(`마지막으로 보던 ${curPage+1}쪽부터 열었어요`);
+  } else {
+    wrapEl.scrollTop = 0;
+  }
   refreshLayersPanel();
   // 이 노트가 바로가기 아이콘으로 만들어진 노트라면(linkedFrom이 있으면), 라이브러리에서 바로 들어왔더라도
   // 원래 아이콘이 있던 곳으로 돌아갈 수 있게 버튼을 보여줌.
@@ -1532,6 +1544,39 @@ function updatePageIndicatorDisplay(){
   document.getElementById('page-scrub-text').textContent = text;
   document.getElementById('page-scrub-input').max = total;
 }
+/* ---------- 노트별 '마지막으로 보던 위치' 기억 ----------
+   이 기기에서만 쓰는 값이라 노트 데이터가 아니라 localStorage에 저장함(클라우드 동기화 대상 아님). */
+const LASTPOS_KEY = 'notepen_lastpos';
+function loadLastPosMap(){
+  try{ return JSON.parse(localStorage.getItem(LASTPOS_KEY) || '{}') || {}; }catch(e){ return {}; }
+}
+function getLastPos(noteId){
+  const m = loadLastPosMap();
+  return (noteId && m[noteId]) ? m[noteId] : null;
+}
+let lastPosSavedAt = 0;
+function saveLastPos(force){
+  if(!current) return;
+  const now = Date.now();
+  if(!force && now - lastPosSavedAt < 600) return; // 스크롤 중에 너무 자주 쓰지 않도록
+  lastPosSavedAt = now;
+  try{
+    const block = stackEl.querySelector(`.page-block[data-page-idx="${curPage}"]`);
+    let offset = 0;
+    if(block){
+      const wrapTop = wrapEl.getBoundingClientRect().top;
+      offset = (wrapTop - block.getBoundingClientRect().top) / (zoom || 1);
+    }
+    const m = loadLastPosMap();
+    m[current.id] = { p: curPage, o: Math.round(offset), t: now };
+    // 기록이 무한정 쌓이지 않도록 최근 50개 노트만 유지
+    const keys = Object.keys(m);
+    if(keys.length > 50){
+      keys.sort((a,b)=> (m[b].t||0) - (m[a].t||0)).slice(50).forEach(k=> delete m[k]);
+    }
+    localStorage.setItem(LASTPOS_KEY, JSON.stringify(m));
+  }catch(e){ /* 저장 실패는 조용히 무시(시크릿 모드 등) */ }
+}
 function updatePageIndicatorFromScroll(){
   const wrapRect = wrapEl.getBoundingClientRect();
   const blocks = Array.from(stackEl.querySelectorAll('.page-block'));
@@ -1546,6 +1591,7 @@ function updatePageIndicatorFromScroll(){
   }
   updatePageIndicatorDisplay();
   pruneFarBlocks();
+  saveLastPos(); // 다음에 이 노트를 열 때 여기서부터 보여주기 위해 위치를 기억해둠
 }
 function scrollToPage(idx){
   const block = stackEl.querySelector(`.page-block[data-page-idx="${idx}"]`);
