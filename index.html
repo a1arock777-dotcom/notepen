@@ -517,6 +517,14 @@
         <button class="opt-btn" id="fb-signout">로그아웃</button>
       </div>
 
+      <div id="sync-step-share" style="display:none; margin-top:12px; border-top:1px solid var(--border); padding-top:12px;">
+        <p style="font-size:12.5px; color:var(--text-dim); line-height:1.6; margin:0 0 8px;">
+          새 기기에서는 아래 링크를 <b>한 번만</b> 열면 이 설정값이 자동으로 입력돼요. (로그인은 기기마다 한 번씩 필요해요)
+        </p>
+        <button class="opt-btn" id="fb-make-link">🔗 다른 기기용 설정 링크 만들기</button>
+        <textarea id="fb-share-link" rows="3" readonly style="display:none; width:100%; margin-top:8px; font-family:monospace; font-size:11px; padding:8px; border-radius:8px; border:1px solid var(--border); background:var(--surface-2); color:var(--text); box-sizing:border-box;"></textarea>
+      </div>
+
       <button class="modal-close" id="modal-sync-close">닫기</button>
     </div>
   </div>
@@ -889,6 +897,7 @@ function syncStartListening(){
 function refreshSyncModalView(){
   const hasConfig = fbConfigured();
   document.getElementById('sync-step-config').style.display = hasConfig ? 'none' : 'block';
+  document.getElementById('sync-step-share').style.display = hasConfig ? 'block' : 'none';
   document.getElementById('sync-step-auth').style.display = (hasConfig && !fbUser) ? 'block' : 'none';
   document.getElementById('sync-step-loggedin').style.display = (hasConfig && fbUser) ? 'block' : 'none';
   if(fbUser){
@@ -975,6 +984,55 @@ document.getElementById('fb-signout').onclick = async ()=>{
   if(fbUnsub){ fbUnsub(); fbUnsub = null; }
   toast('로그아웃했어요.');
 };
+/* ---------- 설정 링크: 다른 기기로 firebaseConfig 옮기기 ----------
+   설정값을 base64로 담은 링크를 만들고, 새 기기에서 그 링크를 한 번 열면 자동으로 저장됨.
+   (파일 안에 설정값을 넣어두면 공개 저장소에 그대로 올라가므로, 링크로 전달하는 방식을 씀)
+   주의: 이 앱에는 전역 변수 history(되돌리기 스택)가 있어서 브라우저 history API는 반드시 window.history로 써야 함 */
+function encodeConfigForLink(cfgObj){
+  const b64 = btoa(unescape(encodeURIComponent(JSON.stringify(cfgObj))));
+  return b64.replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+}
+function decodeConfigFromLink(s){
+  let b64 = s.replace(/-/g,'+').replace(/_/g,'/');
+  while(b64.length % 4) b64 += '=';
+  return JSON.parse(decodeURIComponent(escape(atob(b64))));
+}
+function buildConfigLink(){
+  const raw = localStorage.getItem('notepen_fb_config');
+  if(!raw) return null;
+  return location.origin + location.pathname + '?cfg=' + encodeConfigForLink(JSON.parse(raw));
+}
+document.getElementById('fb-make-link').onclick = async ()=>{
+  const link = buildConfigLink();
+  if(!link){ toast('먼저 설정값을 저장해주세요.'); return; }
+  const box = document.getElementById('fb-share-link');
+  box.value = link;
+  box.style.display = 'block';
+  try{
+    box.select();
+    await navigator.clipboard.writeText(link);
+    toast('링크를 복사했어요. 새 기기에서 한 번만 열면 돼요.');
+  }catch(err){
+    toast('아래 링크를 길게 눌러 복사해주세요.');
+  }
+};
+/* 주소에 ?cfg=... 가 붙어 있으면 설정값을 자동으로 저장하고, 주소창에서는 지움 */
+(function importConfigFromUrl(){
+  try{
+    const params = new URLSearchParams(location.search);
+    const raw = params.get('cfg');
+    if(!raw) return;
+    const cfg = decodeConfigFromLink(raw);
+    if(cfg && cfg.apiKey && cfg.projectId){
+      localStorage.setItem('notepen_fb_config', JSON.stringify(cfg));
+      setTimeout(()=> toast('동기화 설정을 불러왔어요. 이제 로그인만 하면 돼요.'), 700);
+    }
+    params.delete('cfg');
+    const qs = params.toString();
+    window.history.replaceState(null, '', location.pathname + (qs ? '?' + qs : '') + location.hash);
+  }catch(err){ console.error('설정 링크 처리 실패', err); }
+})();
+
 if(initFirebase()) onFirebaseAuthReady();
 
 function toast(msg){
