@@ -1563,6 +1563,10 @@ let pinchStartZoom = 1;
 let touchDownInfo = null;
 let lastTapTime = 0;
 let lastTapPt = null;
+// 두 손가락으로 화면을 톡 치면 되돌리기(윈도우 Ctrl+Z와 같은 동작)
+let twoFingerTap = null;        // 두 손가락이 닿은 순간의 시각/위치. 손가락이 움직이면(=핀치) null이 되어 탭으로 인정하지 않음
+const TWO_FINGER_TAP_MS = 320;  // 두 손가락을 이 시간 안에 떼야 '톡'으로 인정
+const TWO_FINGER_TAP_MOVE = 18; // 두 손가락 중 하나라도 이만큼(px) 이상 움직이면 확대/축소 제스처로 보고 취소
 
 function dist(a,b){ return Math.hypot(a.x-b.x, a.y-b.y); }
 function touchEntries(){
@@ -2160,9 +2164,13 @@ function onPointerDown(e){
     const p1 = activePointers.get(pinchIds[0]), p2 = activePointers.get(pinchIds[1]);
     pinchStartDist = dist(p1, p2);
     pinchStartZoom = zoom;
+    twoFingerTap = { t: Date.now(), pts: [{x:p1.x, y:p1.y}, {x:p2.x, y:p2.y}] }; // 두 손가락 '톡'(되돌리기) 후보로 기록
     return;
   }
-  if(pinchActive) return; // 핀치 중 추가로 닿는 손가락(손바닥 등)은 기준점에 영향 주지 않도록 무시
+  if(pinchActive){
+    twoFingerTap = null; // 손가락이나 펜이 더 닿으면 두 손가락 '톡'이 아님
+    return; // 핀치 중 추가로 닿는 손가락(손바닥 등)은 기준점에 영향 주지 않도록 무시
+  }
 
   if(e.pointerType==='touch'){
     touchDownInfo = {x:e.clientX, y:e.clientY, t:Date.now()};
@@ -2269,6 +2277,10 @@ function onPointerMove(e){
   if(pinchActive){
     const p1 = activePointers.get(pinchIds && pinchIds[0]);
     const p2 = activePointers.get(pinchIds && pinchIds[1]);
+    if(p1 && p2 && twoFingerTap &&
+       (dist(p1, twoFingerTap.pts[0]) > TWO_FINGER_TAP_MOVE || dist(p2, twoFingerTap.pts[1]) > TWO_FINGER_TAP_MOVE)){
+      twoFingerTap = null; // 손가락이 움직였으므로 '톡'이 아니라 확대/축소 제스처
+    }
     if(p1 && p2 && pinchStartDist>0){
       const d = dist(p1, p2);
       let newZoom = pinchStartZoom * (d / pinchStartDist);
@@ -2379,6 +2391,11 @@ function onPointerUp(e){
       pinchActive = false;
       pinchIds = null;
       centerIfFits();
+      // 두 손가락으로 톡 -> 되돌리기(Ctrl+Z). 거의 움직이지 않고 짧게 뗐을 때만 인정.
+      if(twoFingerTap && (Date.now() - twoFingerTap.t) < TWO_FINGER_TAP_MS) doUndo(true);
+      twoFingerTap = null;
+      // 남은 한 손가락이 떨어질 때 한 손가락 더블탭(폭 맞춤)으로 오인되지 않도록 탭 기록을 비움
+      touchDownInfo = null; lastTapTime = 0; lastTapPt = null;
     }
     panStart = null; drawing = false; activeAction = null;
     return;
@@ -2805,15 +2822,24 @@ document.getElementById('btn-add-shortcut').addEventListener('click', ()=>{
 document.getElementById('btn-zoom-in').onclick = ()=>{ zoom = Math.min(10, zoom + (zoom<3?0.15:0.5)); stackEl.style.transform = `scale(${zoom})`; centerIfFits(); };
 document.getElementById('btn-zoom-out').onclick = ()=>{ zoom = Math.max(0.4, zoom-0.15); stackEl.style.transform = `scale(${zoom})`; centerIfFits(); };
 
-document.getElementById('btn-undo').onclick = ()=>{
+// 되돌리기 본체. 되돌리기 버튼과 두 손가락 '톡' 제스처가 함께 사용함(showToast=true면 결과를 토스트로 알려줌).
+function doUndo(showToast){
   const snap = history.pop();
-  if(!snap) return;
-  const layer = current.pages[snap.pageIdx].layers[snap.layerIdx];
+  if(!snap){
+    if(showToast) toast('되돌릴 작업이 없어요');
+    return false;
+  }
+  const page = current && current.pages[snap.pageIdx];
+  const layer = page && page.layers[snap.layerIdx];
+  if(!layer) return false;
   redoStack.push(snapshotLayer(snap.pageIdx, snap.layerIdx));
   layer.strokes = snap.strokes; layer.masks = snap.masks;
   redrawLayerCanvas(snap.pageIdx, snap.layerIdx);
   scheduleSave();
-};
+  if(showToast) toast('되돌렸어요');
+  return true;
+}
+document.getElementById('btn-undo').onclick = ()=> doUndo(false);
 document.getElementById('btn-redo').onclick = ()=>{
   const snap = redoStack.pop();
   if(!snap) return;
