@@ -1313,6 +1313,35 @@ async function openNotebook(id){
   history.length = 0; redoStack.length = 0;
   document.getElementById('title-input').value = current.title;
   updateNoteSyncBtn();
+  // ---- 동기화된 PDF 노트의 원본 파일 자가 복구 ----
+  // (A) 다른 기기에서 받아온 노트인데 PDF 원본이 아직 이 기기에 없으면 지금 내려받음
+  if(current.type === 'pdf' && !current.pdfBuffer && current.pdfStoragePath && fbStorage && fbUser){
+    toast('PDF 원본을 내려받는 중이에요…');
+    // 큰 PDF는 오래 걸리므로 다 받을 때까지 안내를 계속 띄워둠
+    const keepToast = setInterval(()=> toast('PDF 원본을 내려받는 중이에요…'), 1400);
+    try{
+      const url = await fbStorage.ref(current.pdfStoragePath).getDownloadURL();
+      const resp = await fetch(url);
+      if(!resp.ok) throw new Error('HTTP ' + resp.status);
+      current.pdfBuffer = await resp.arrayBuffer();
+      await dbPut(current, {skipSync:true});
+      toast('PDF 원본을 불러왔어요');
+    }catch(err){
+      console.error('PDF 원본 다운로드 실패', err);
+      toast('PDF 원본을 못 받았어요 [' + ((err && (err.code || err.message)) || '알 수 없음') + ']');
+    }finally{
+      clearInterval(keepToast);
+    }
+  }
+  // (B) 이 기기엔 PDF 원본이 있는데 클라우드에 아직 안 올라갔으면 지금 올림(다른 기기가 받아갈 수 있게)
+  else if(current.type === 'pdf' && current.pdfBuffer && !current.pdfStoragePath && fbUser && !current.syncOff){
+    toast('PDF 원본을 클라우드에 올리는 중이에요…');
+    syncPushNotebook(current);
+  }
+  // (C) 원본도 없고 클라우드 경로도 없는 경우 안내
+  else if(current.type === 'pdf' && !current.pdfBuffer && !current.pdfStoragePath){
+    toast('이 노트의 PDF 원본이 이 기기에 없어요. 원래 기기에서 그 노트를 한 번 열어주세요.');
+  }
   if(current.type === 'pdf' && current.pdfBuffer && PDFJS_AVAILABLE){
     try{
       pdfDoc = await pdfjsLib.getDocument({data: current.pdfBuffer.slice(0)}).promise;
