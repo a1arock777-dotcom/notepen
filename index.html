@@ -88,6 +88,17 @@
     background:rgba(0,0,0,0.55); color:white; border:none; display:flex; align-items:center; justify-content:center;
     font-size:13px; cursor:pointer; padding:0 4px;
   }
+  /* 노트별 동기화 제외 토글 (라이브러리 카드) */
+  .card-sync-btn{
+    position:absolute; top:6px; left:38px; min-width:26px; height:26px; border-radius:50%;
+    background:rgba(0,0,0,0.55); color:white; border:none; display:flex; align-items:center; justify-content:center;
+    font-size:12px; cursor:pointer; padding:0 4px;
+  }
+  .card-sync-btn.off{ background:rgba(192,57,43,0.85); }
+  .card-nosync-badge{
+    display:inline-block; margin-left:6px; font-size:10px; padding:1px 5px; border-radius:8px;
+    background:#ffe0e0; color:#c0392b; vertical-align:middle; font-weight:600;
+  }
 
   /* ---------- Folder tabs ---------- */
   .folder-tabs{
@@ -522,6 +533,7 @@
       <span class="page-indicator" id="page-indicator">1/1</span>
       <button class="icon-btn" id="btn-prev">‹</button>
       <button class="icon-btn" id="btn-next">›</button>
+      <button class="icon-btn" id="btn-note-sync" title="이 노트 동기화 제외/포함">☁️</button>
       <button class="icon-btn" id="btn-layers">▤</button>
       <button class="icon-btn" id="btn-fullscreen" title="전체화면">⛶</button>
     </div>
@@ -775,9 +787,32 @@ function updateSyncBadge(){
   btn.title = fbUser ? `동기화 중 (${fbUser.email})` : '기기 간 동기화 설정';
 }
 
+/* ---------- 노트별 동기화 제외 ----------
+   nb.syncOff === true 인 노트는 이 기기에서 클라우드로 올리지도, 클라우드의 변경을 내려받지도 않음.
+   이미 클라우드에 올라가 있던 마지막 내용은 그대로 남아 있고, 그 이후의 수정분만 올라가지 않음.
+   (이 설정 자체는 클라우드를 거치지 않으므로 기기마다 따로 지정함) */
+function updateNoteSyncBtn(){
+  const btn = document.getElementById('btn-note-sync');
+  if(!btn) return;
+  const off = !!(current && current.syncOff);
+  btn.textContent = off ? '🚫' : '☁️';
+  btn.title = off ? '이 노트는 동기화 제외됨 (눌러서 다시 포함)' : '이 노트는 동기화 중 (눌러서 제외)';
+}
+async function toggleNoteSync(nb){
+  if(!nb) return;
+  const nowOff = !nb.syncOff;
+  nb.syncOff = nowOff;
+  if(!nowOff) nb.updatedAt = Date.now(); // 다시 포함시킬 때는 이 기기의 현재 내용이 최신이 되도록 갱신해서 올림
+  await dbPut(nb, {skipSync: nowOff});
+  if(current && current.id === nb.id){ current.syncOff = nowOff; updateNoteSyncBtn(); }
+  toast(nowOff ? '이 노트는 이제 동기화에서 제외돼요' : '이 노트를 다시 동기화해요');
+}
+document.getElementById('btn-note-sync').onclick = ()=>{ if(current) toggleNoteSync(current); };
+
 /* 로컬에 노트가 저장될 때마다 호출됨. 로그인 안 되어 있으면 그냥 무시. */
 async function syncPushNotebook(nb){
   if(!fbUser || !fbDb) return;
+  if(nb.syncOff) return; // 사용자가 이 노트를 동기화에서 제외함
   try{
     if(nb.type==='pdf' && nb.pdfBuffer && !nb.pdfStoragePath){
       const path = `users/${fbUser.uid}/pdfs/${nb.id}.pdf`;
@@ -816,12 +851,14 @@ function syncStartListening(){
       let changed = false;
       for(const change of snap.docChanges()){
         const d = change.doc.data();
+        const local = await dbGetOne(d.id);
+        // 이 기기에서 '동기화 제외'로 지정한 노트는 내려받지도 않음(클라우드에서 지워져도 로컬 사본은 그대로 유지)
+        if(local && local.syncOff) continue;
         if(change.type === 'removed'){
           await dbDelete(d.id, {skipSync:true});
           changed = true;
           continue;
         }
-        const local = await dbGetOne(d.id);
         if(local && local.updatedAt >= d.updatedAt) continue; // 이 기기가 더 최신이면(방금 내가 쓴 것) 무시
         let pdfBuffer = null;
         if(d.pdfStoragePath){
@@ -1061,14 +1098,15 @@ function renderGrid(){
       : `<div style="font-size:34px;">📝</div>`;
     card.innerHTML = `
       <button class="card-folder-btn" data-id="${nb.id}" title="폴더로 이동">📁</button>
+      <button class="card-sync-btn${nb.syncOff ? ' off' : ''}" data-id="${nb.id}" title="${nb.syncOff ? '이 노트는 동기화 제외됨 (눌러서 다시 포함)' : '이 노트는 동기화 중 (눌러서 제외)'}">${nb.syncOff ? '🚫' : '☁️'}</button>
       <button class="card-del" data-id="${nb.id}">✕</button>
       <div class="card-thumb">${thumb}</div>
       <div class="card-body">
-        <div class="card-title">${escapeHtml(nb.title)}</div>
+        <div class="card-title">${escapeHtml(nb.title)}${nb.syncOff ? '<span class="card-nosync-badge">동기화 제외</span>' : ''}</div>
         <div class="card-meta">${nb.pages.length}쪽 · ${new Date(nb.updatedAt).toLocaleDateString('ko-KR')}</div>
       </div>`;
     card.addEventListener('click', (e)=>{
-      if(e.target.closest('.card-del') || e.target.closest('.card-folder-btn')) return;
+      if(e.target.closest('.card-del') || e.target.closest('.card-folder-btn') || e.target.closest('.card-sync-btn')) return;
       openNotebook(nb.id);
     });
     card.querySelector('.card-del').addEventListener('click', async (e)=>{
@@ -1081,6 +1119,11 @@ function renderGrid(){
     card.querySelector('.card-folder-btn').addEventListener('click', (e)=>{
       e.stopPropagation();
       openFolderMovePopover(nb, e.currentTarget);
+    });
+    card.querySelector('.card-sync-btn').addEventListener('click', async (e)=>{
+      e.stopPropagation();
+      await toggleNoteSync(nb);
+      refreshLibrary();
     });
     gridEl.appendChild(card);
   });
@@ -1211,6 +1254,7 @@ async function openNotebook(id){
   curPage = 0; activeLayerIdx = 0; zoom = 1;
   history.length = 0; redoStack.length = 0;
   document.getElementById('title-input').value = current.title;
+  updateNoteSyncBtn();
   if(current.type === 'pdf' && current.pdfBuffer && PDFJS_AVAILABLE){
     try{
       pdfDoc = await pdfjsLib.getDocument({data: current.pdfBuffer.slice(0)}).promise;
