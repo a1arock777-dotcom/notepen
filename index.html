@@ -352,6 +352,16 @@
     touch-action:none; user-select:none;
   }
   .page-nav-btn:active, .page-nav-btn.active{ background:rgba(217,98,43,0.9); }
+  /* 오른쪽 버튼 위에 펜/마우스를 올리면 왼쪽에 뜨는 작은 이름표 (아이콘만으로는 헷갈려서) */
+  .page-nav-btn[data-tip]{ position:relative; }
+  .page-nav-btn[data-tip]::after{
+    content:attr(data-tip);
+    position:absolute; right:calc(100% + 8px); top:50%; transform:translateY(-50%);
+    background:rgba(30,30,34,0.94); color:white; font-size:11.5px; font-weight:700; letter-spacing:0.2px;
+    padding:4px 9px; border-radius:8px; white-space:nowrap; pointer-events:none;
+    box-shadow:var(--shadow); opacity:0; transition:opacity 0.12s; z-index:60;
+  }
+  .page-nav-btn[data-tip]:hover::after, .page-nav-btn[data-tip].tip-show::after{ opacity:1; }
   #page-scrub{
     background:rgba(30,30,34,0.82); color:white; border-radius:999px; padding:8px 4px;
     display:flex; align-items:center; justify-content:center; min-width:34px; min-height:44px;
@@ -732,9 +742,9 @@
       <div class="page-stack" id="page-stack"></div>
     </div>
     <div id="page-nav">
-      <button type="button" class="page-nav-btn" id="btn-toc" title="목차 — 중요한 페이지를 이름 붙여 등록해두고 바로 이동">📑</button>
-      <button type="button" class="page-nav-btn" id="btn-scratch-back" title="원래 보던 노트로 돌아가기" style="display:none;">↩️</button>
-      <button type="button" class="page-nav-btn" id="btn-scratch" title="이면지(연습장) 노트로 가기 — 꾹 누르면 다시 고르기">🗒️</button>
+      <button type="button" class="page-nav-btn" id="btn-toc" data-tip="목차" title="목차">📑</button>
+      <button type="button" class="page-nav-btn" id="btn-scratch-back" data-tip="돌아가기" title="원래 보던 노트로 돌아가기" style="display:none;">↩️</button>
+      <button type="button" class="page-nav-btn" id="btn-scratch" data-tip="이면지" title="이면지 (꾹 누르면 다시 고르기)">🗒️</button>
       <button type="button" class="page-nav-btn" id="page-nav-up" title="이전 페이지">▲</button>
       <div id="page-scrub" title="탭해서 페이지 이동">
         <span id="page-scrub-text">1/1</span>
@@ -3604,6 +3614,17 @@ async function addCurrentPageToToc(){
   renderToc();
   toast('목차에 추가했어요 — ' + name + ' (' + (curPage + 1) + '페이지)');
 }
+// 갤럭시 탭 S펜을 아이콘 위에 가져다 대면(호버) 이름표가 뜨도록 함.
+// CSS :hover만으로도 대부분 동작하지만, 펜 호버를 :hover로 잡지 못하는 브라우저가 있어 보조로 클래스도 붙여줌.
+document.querySelectorAll('.page-nav-btn[data-tip]').forEach(btn=>{
+  const show = (e)=>{ if(e.pointerType === 'touch') return; btn.classList.add('tip-show'); };
+  const hide = ()=> btn.classList.remove('tip-show');
+  btn.addEventListener('pointerover', show);
+  btn.addEventListener('pointerenter', show);
+  btn.addEventListener('pointerout', hide);
+  btn.addEventListener('pointerleave', hide);
+  btn.addEventListener('pointerdown', hide); // 눌러서 이동한 뒤 이름표가 남아있지 않게
+});
 document.getElementById('btn-toc').addEventListener('click', openTocPanel);
 document.getElementById('toc-add-btn').addEventListener('click', addCurrentPageToToc);
 document.getElementById('toc-name-input').addEventListener('keydown', (e)=>{
