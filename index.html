@@ -471,6 +471,19 @@
     </div>
   </div>
 
+  <!-- 이면지(연습장) 노트 고르기 -->
+  <div class="modal-backdrop" id="modal-scratch" style="display:none;">
+    <div class="modal">
+      <h3>이면지 노트 고르기</h3>
+      <p style="font-size:12.5px; color:var(--text-dim); line-height:1.6;">
+        연습장처럼 쓸 노트를 하나 골라주세요. 고르고 나면 어느 노트에서든 오른쪽 🗒️ 버튼으로 바로 갈 수 있어요.
+        (나중에 바꾸려면 🗒️ 버튼을 꾹 누르세요)
+      </p>
+      <div id="scratch-note-list" style="max-height:46vh; overflow-y:auto; margin-top:10px;"></div>
+      <button class="modal-close" id="modal-scratch-close">닫기</button>
+    </div>
+  </div>
+
   <!-- SYNC MODAL -->
   <div class="modal-backdrop" id="modal-sync" style="display:none;">
     <div class="modal">
@@ -625,6 +638,8 @@
       <div class="page-stack" id="page-stack"></div>
     </div>
     <div id="page-nav">
+      <button type="button" class="page-nav-btn" id="btn-scratch-back" title="원래 보던 노트로 돌아가기" style="display:none;">↩️</button>
+      <button type="button" class="page-nav-btn" id="btn-scratch" title="이면지(연습장) 노트로 가기 — 꾹 누르면 다시 고르기">🗒️</button>
       <button type="button" class="page-nav-btn" id="page-nav-up" title="이전 페이지">▲</button>
       <div id="page-scrub" title="탭해서 페이지 이동">
         <span id="page-scrub-text">1/1</span>
@@ -1374,8 +1389,13 @@ async function openNotebook(id){
   // 이 노트가 바로가기 아이콘으로 만들어진 노트라면(linkedFrom이 있으면), 라이브러리에서 바로 들어왔더라도
   // 원래 아이콘이 있던 곳으로 돌아갈 수 있게 버튼을 보여줌.
   document.getElementById('btn-shortcut-back').style.display = (current && current.linkedFrom) ? 'flex' : 'none';
+  // 이면지 바로가기 버튼 상태 갱신 (이면지가 아닌 노트를 열면 '돌아가기' 대상은 의미가 없어지므로 지움)
+  const scratchIdNow = getScratchId();
+  if(!(scratchIdNow && current.id === scratchIdNow)) scratchOrigin = null;
+  updateScratchButtons();
 }
 document.getElementById('btn-back').onclick = async ()=>{
+  scratchOrigin = null; // 라이브러리로 나가면 '이면지에서 돌아가기' 대상은 없어짐
   await persist(true);
   editorEl.style.display = 'none';
   libraryEl.style.display = 'block';
@@ -2912,6 +2932,81 @@ document.getElementById('btn-next').onclick = ()=>{
 };
 
 /* ---------- 오른쪽 페이지 이동 버튼 (위/아래 한 페이지씩 + 드래그 스크럽) ---------- */
+/* ---------- 이면지(연습장) 노트 바로가기 ----------
+   어느 노트에서든 오른쪽 🗒️ 버튼으로 지정해둔 연습장 노트로 바로 건너뛰고,
+   ↩️ 버튼으로 보던 노트로 돌아옴. 어느 노트를 이면지로 쓸지는 이 기기에만 저장함. */
+const SCRATCH_KEY = 'notepen_scratch_note';
+let scratchOrigin = null; // 이면지로 건너뛰기 직전에 보던 노트 id
+function getScratchId(){ try{ return localStorage.getItem(SCRATCH_KEY) || null; }catch(e){ return null; } }
+function setScratchId(id){ try{ if(id) localStorage.setItem(SCRATCH_KEY, id); else localStorage.removeItem(SCRATCH_KEY); }catch(e){} }
+function updateScratchButtons(){
+  const btn = document.getElementById('btn-scratch');
+  const back = document.getElementById('btn-scratch-back');
+  if(!btn || !back) return;
+  const sid = getScratchId();
+  const inScratch = !!(current && sid && current.id === sid);
+  btn.style.display = inScratch ? 'none' : 'flex';
+  back.style.display = (inScratch && scratchOrigin) ? 'flex' : 'none';
+}
+async function openScratchPicker(){
+  const all = await dbGetAll();
+  const list = document.getElementById('scratch-note-list');
+  const sid = getScratchId();
+  list.innerHTML = '';
+  if(!all.length){
+    list.innerHTML = '<p style="font-size:13px; color:var(--text-dim);">아직 노트가 없어요.</p>';
+  } else {
+    all.sort((a,b)=> b.updatedAt - a.updatedAt).forEach(nb=>{
+      const row = document.createElement('div');
+      row.style.cssText = 'padding:10px 12px; border-radius:10px; cursor:pointer; font-size:13.5px; border:1px solid var(--border); margin-bottom:6px; display:flex; justify-content:space-between; gap:8px; align-items:center;';
+      if(nb.id === sid) row.style.borderColor = 'var(--accent)';
+      row.innerHTML = '<span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">' + escapeHtml(nb.title) + '</span>' +
+        '<span style="color:var(--text-dim); font-size:11.5px; white-space:nowrap;">' + nb.pages.length + '쪽' + (nb.id===sid ? ' · 지금 지정됨' : '') + '</span>';
+      row.addEventListener('click', ()=>{
+        setScratchId(nb.id);
+        document.getElementById('modal-scratch').style.display = 'none';
+        updateScratchButtons();
+        toast('"' + nb.title + '" 노트를 이면지로 지정했어요');
+      });
+      list.appendChild(row);
+    });
+  }
+  document.getElementById('modal-scratch').style.display = 'flex';
+}
+document.getElementById('modal-scratch-close').onclick = ()=> document.getElementById('modal-scratch').style.display = 'none';
+async function goToScratch(){
+  const sid = getScratchId();
+  const all = await dbGetAll();
+  if(!sid || !all.find(n=>n.id===sid)){ openScratchPicker(); return; } // 아직 안 정했거나 그 노트가 지워진 경우
+  if(current && current.id === sid) return;
+  const origin = current ? current.id : null;
+  await persist(true);
+  await openNotebook(sid);
+  scratchOrigin = origin;
+  updateScratchButtons();
+  if(origin) toast('이면지 노트예요. ↩️ 를 누르면 보던 노트로 돌아가요');
+}
+let scratchPressTimer = null, scratchLongPressed = false;
+const scratchBtnEl = document.getElementById('btn-scratch');
+scratchBtnEl.addEventListener('pointerdown', ()=>{
+  scratchLongPressed = false;
+  clearTimeout(scratchPressTimer);
+  scratchPressTimer = setTimeout(()=>{ scratchLongPressed = true; openScratchPicker(); }, 600); // 꾹 누르면 이면지 노트 다시 고르기
+});
+['pointerup','pointercancel','pointerleave'].forEach(ev=> scratchBtnEl.addEventListener(ev, ()=> clearTimeout(scratchPressTimer)));
+scratchBtnEl.addEventListener('click', ()=>{
+  if(scratchLongPressed){ scratchLongPressed = false; return; }
+  goToScratch();
+});
+document.getElementById('btn-scratch-back').addEventListener('click', async ()=>{
+  if(!scratchOrigin) return;
+  const target = scratchOrigin;
+  scratchOrigin = null;
+  await persist(true);
+  await openNotebook(target);
+  updateScratchButtons();
+});
+
 document.getElementById('page-nav-up').addEventListener('click', ()=>{
   if(!current) return;
   if(curPage>0) scrollToPage(curPage-1);
