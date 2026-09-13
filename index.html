@@ -538,6 +538,7 @@
       </div>
       <button class="opt-btn" id="opt-pdf">📄 PDF 불러오기<small>PDF 위에 필기 · 레이어 · 마스킹 사용 가능</small></button>
       <button class="opt-btn" id="opt-blank">✏️ 빈 노트 만들기<small>빈 캔버스에서 자유롭게 필기</small></button>
+      <button class="opt-btn" id="opt-link" style="display:none;">🔗 이미 있는 노트에 연결<small>제목으로 찾아서 이 아이콘에 연결해요</small></button>
       <button class="modal-close" id="modal-close">취소</button>
     </div>
   </div>
@@ -570,6 +571,17 @@
       </p>
       <div id="scratch-note-list" style="max-height:46vh; overflow-y:auto; margin-top:10px;"></div>
       <button class="modal-close" id="modal-scratch-close">닫기</button>
+    </div>
+  </div>
+
+  <!-- LINK SHORTCUT TO AN EXISTING NOTE -->
+  <div class="modal-backdrop" id="modal-link" style="display:none;">
+    <div class="modal">
+      <h3>이미 있는 노트에 연결</h3>
+      <p>이 바로가기 아이콘을 눌렀을 때 열릴 노트를 골라주세요.</p>
+      <input type="text" id="link-search" placeholder="제목으로 찾기" autocomplete="off">
+      <div id="link-note-list" style="max-height:44vh; overflow-y:auto;"></div>
+      <button class="modal-close" id="modal-link-close">취소</button>
     </div>
   </div>
 
@@ -1553,7 +1565,13 @@ document.addEventListener('click', ()=> document.getElementById('folder-move-pop
 
 function escapeHtml(s){ const d=document.createElement('div'); d.textContent=s; return d.innerHTML; }
 
-document.getElementById('btn-new').onclick = ()=>{ pendingShortcutLink = null; pendingShortcutOrigin = null; renderNoteFavs(); document.getElementById('modal').style.display='flex'; };
+document.getElementById('btn-new').onclick = ()=>{ pendingShortcutLink = null; pendingShortcutOrigin = null; renderNoteFavs(); showNewNoteModal(false); };
+// 새 노트 만들기 창 열기. 바로가기 아이콘을 눌러서 연 경우에만 '이미 있는 노트에 연결'을 함께 보여줌.
+function showNewNoteModal(forShortcut){
+  const linkBtn = document.getElementById('opt-link');
+  if(linkBtn) linkBtn.style.display = forShortcut ? 'flex' : 'none';
+  document.getElementById('modal').style.display = 'flex';
+}
 document.getElementById('modal-close').onclick = ()=>{ pendingShortcutLink = null; pendingShortcutOrigin = null; document.getElementById('modal').style.display='none'; };
 let pendingBgColor = '#ffffff';
 document.getElementById('opt-blank').onclick = ()=>{
@@ -2810,7 +2828,8 @@ function createShortcutElement(page, pageIdx, sc){
       } else {
         pendingShortcutLink = sc;
         pendingShortcutOrigin = {notebookId: current.id, pageIdx, shortcutId: sc.id};
-        document.getElementById('modal').style.display = 'flex';
+        renderNoteFavs();
+        showNewNoteModal(true); // 새로 만들 수도 있고, 이미 있는 노트에 연결할 수도 있음
       }
     }
   }
@@ -2861,6 +2880,64 @@ function placeShortcutAt(e){
 // 바로가기 아이콘을 탭해서 "새 노트 만들기"가 열렸을 때 기억해둔 아이콘(pendingShortcutLink)이 있으면,
 // 방금 만들어진 노트의 id를 그 아이콘에 저장해서 다음부터는 탭하면 바로 이 노트가 열리게 함.
 // current가 아직 원래 보던 노트를 가리키고 있을 때(= openNotebook으로 전환되기 전) 호출해야 함.
+/* ---------- 바로가기 아이콘을 '이미 있는 노트'에 연결 ----------
+   아이콘을 탭했을 때 새 노트를 만드는 대신, 이미 만들어둔 노트를 제목으로 찾아 연결함. */
+let linkPickerNotes = [];
+function renderLinkPickerList(){
+  const list = document.getElementById('link-note-list');
+  const q = (document.getElementById('link-search').value || '').trim().toLowerCase();
+  const rows = q ? linkPickerNotes.filter(nb=> (nb.title||'').toLowerCase().includes(q)) : linkPickerNotes;
+  list.innerHTML = '';
+  if(!rows.length){
+    list.innerHTML = '<p style="font-size:13px; color:var(--text-dim);">' + (q ? '그 제목의 노트를 못 찾았어요.' : '연결할 다른 노트가 아직 없어요.') + '</p>';
+    return;
+  }
+  rows.forEach(nb=>{
+    const row = document.createElement('div');
+    row.className = 'link-note-row';
+    row.style.cssText = 'padding:10px 12px; border-radius:10px; cursor:pointer; font-size:13.5px; border:1px solid var(--border); margin-bottom:6px; display:flex; justify-content:space-between; gap:8px; align-items:center;';
+    row.innerHTML = '<span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">' + escapeHtml(nb.title) + '</span>' +
+      '<span style="color:var(--text-dim); font-size:11.5px; white-space:nowrap;">' + nb.pages.length + '쪽</span>';
+    row.addEventListener('click', ()=> linkShortcutToExisting(nb));
+    list.appendChild(row);
+  });
+}
+async function openShortcutLinkPicker(){
+  if(!pendingShortcutLink){ toast('연결할 바로가기 아이콘이 없어요'); return; }
+  const all = await dbGetAll();
+  // 지금 보고 있는 노트 자신에게 연결하는 건 의미가 없으므로 목록에서 뺌
+  linkPickerNotes = all.filter(nb=> !current || nb.id !== current.id).sort((a,b)=> b.updatedAt - a.updatedAt);
+  document.getElementById('modal').style.display = 'none';
+  document.getElementById('link-search').value = '';
+  renderLinkPickerList();
+  document.getElementById('modal-link').style.display = 'flex';
+}
+async function linkShortcutToExisting(nb){
+  const origin = pendingShortcutOrigin; // linkPendingShortcutTo가 비우기 전에 먼저 챙겨둠
+  document.getElementById('modal-link').style.display = 'none';
+  // 연결되는 노트 쪽에도 '원래 자리'를 적어둬서 그 노트에서 ↩️로 되돌아올 수 있게 함
+  if(origin){
+    const target = await dbGetOne(nb.id);
+    if(target){ target.linkedFrom = origin; await dbPut(target); }
+  }
+  await linkPendingShortcutTo(nb.id); // 아이콘에 노트 id 저장 + 지금 노트 저장
+  // 아이콘 모양(연결됨 테두리 + 제목 라벨)을 바로 반영
+  if(origin){
+    const oldEl = stackEl.querySelector(`.page-shortcut[data-id="${origin.shortcutId}"]`);
+    const pg = current.pages[origin.pageIdx];
+    const scObj = (pg && pg.shortcuts) ? pg.shortcuts.find(s=> s.id === origin.shortcutId) : null;
+    if(oldEl && oldEl.parentElement && scObj){
+      oldEl.parentElement.replaceChild(createShortcutElement(pg, origin.pageIdx, scObj), oldEl);
+    }
+  }
+  toast('"' + (nb.title || '제목 없음') + '" 노트에 연결했어요');
+}
+document.getElementById('opt-link').onclick = openShortcutLinkPicker;
+document.getElementById('link-search').addEventListener('input', renderLinkPickerList);
+document.getElementById('modal-link-close').onclick = ()=>{
+  document.getElementById('modal-link').style.display = 'none';
+  pendingShortcutLink = null; pendingShortcutOrigin = null;
+};
 async function linkPendingShortcutTo(notebookId){
   if(!pendingShortcutLink) return;
   pendingShortcutLink.linkedNotebookId = notebookId;
@@ -3941,5 +4018,3 @@ refreshLibrary();
 </script>
 </body>
 </html>
-
-
