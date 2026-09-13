@@ -80,44 +80,45 @@
     box-shadow:var(--shadow); cursor:pointer;
   }
   .grid{
-    display:grid; grid-template-columns:repeat(2,1fr); gap:14px; margin-top:16px;
+    display:grid; grid-template-columns:repeat(4,1fr); gap:9px; margin-top:14px;
   }
-  @media (min-width:600px){ .grid{ grid-template-columns:repeat(3,1fr); } }
+  @media (min-width:600px){ .grid{ grid-template-columns:repeat(6,1fr); } }
   .card{
-    background:var(--surface); border:1px solid var(--border); border-radius:var(--radius);
+    background:var(--surface); border:1px solid var(--border); border-radius:12px;
     overflow:hidden; box-shadow:var(--shadow); cursor:pointer; position:relative;
     display:flex; flex-direction:column;
+    -webkit-user-select:none; user-select:none; -webkit-touch-callout:none;
   }
-  /* 꾹 눌러서 순서 바꾸기 */
-  .card{ -webkit-user-select:none; user-select:none; }
+  /* 꾹 눌렀을 때 이미지 저장 메뉴나 드래그가 끼어들어 순서 바꾸기가 끊기지 않게 */
+  .card img{ -webkit-user-drag:none; pointer-events:none; }
   .card.card-dragging{
-    opacity:0.92; transform:scale(1.05); border-color:var(--accent);
+    opacity:0.92; transform:scale(1.06); border-color:var(--accent);
     box-shadow:0 10px 26px rgba(0,0,0,0.28); z-index:5;
   }
-  .grid.reordering{ touch-action:none; }
+  .card.card-dragging, .grid.reordering{ touch-action:none; }
   .card-thumb{
     width:100%; aspect-ratio:3/4; background:var(--surface-2); display:flex; align-items:center; justify-content:center;
-    overflow:hidden;
+    overflow:hidden; position:relative; /* 카드 버튼들의 위치 기준 */
   }
   .card-thumb img{ width:100%; height:100%; object-fit:cover; display:block; }
-  .card-body{ padding:9px 11px 11px; }
-  .card-title{ font-size:13.5px; font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-  .card-meta{ font-size:11px; color:var(--text-dim); margin-top:3px; }
+  .card-body{ padding:7px 8px 5px; } /* 제목이 썸네일 위로 올라옴 */
+  .card-title{ font-size:11.5px; font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .card-meta{ font-size:9.5px; color:var(--text-dim); margin-top:2px; }
   .card-del{
-    position:absolute; top:6px; right:6px; width:26px; height:26px; border-radius:50%;
+    position:absolute; top:4px; right:4px; width:20px; height:20px; border-radius:50%;
     background:rgba(0,0,0,0.55); color:white; border:none; display:flex; align-items:center; justify-content:center;
-    font-size:14px; cursor:pointer;
+    font-size:11px; cursor:pointer; padding:0;
   }
   .card-folder-btn{
-    position:absolute; top:6px; left:6px; min-width:26px; height:26px; border-radius:50%;
+    position:absolute; top:4px; left:4px; min-width:20px; height:20px; border-radius:50%;
     background:rgba(0,0,0,0.55); color:white; border:none; display:flex; align-items:center; justify-content:center;
-    font-size:13px; cursor:pointer; padding:0 4px;
+    font-size:10px; cursor:pointer; padding:0 3px;
   }
   /* 노트별 동기화 제외 토글 (라이브러리 카드) */
   .card-sync-btn{
-    position:absolute; top:6px; left:38px; min-width:26px; height:26px; border-radius:50%;
+    position:absolute; top:4px; left:28px; min-width:20px; height:20px; border-radius:50%;
     background:rgba(0,0,0,0.55); color:white; border:none; display:flex; align-items:center; justify-content:center;
-    font-size:12px; cursor:pointer; padding:0 4px;
+    font-size:9.5px; cursor:pointer; padding:0 3px;
   }
   .card-sync-btn.off{ background:rgba(192,57,43,0.85); }
   .card-nosync-badge{
@@ -1249,12 +1250,17 @@ let suppressCardClick = false;
 let reorderCard = null, reorderPointerId = null, reorderTimer = null, reorderStart = null;
 function cancelReorderTimer(){ clearTimeout(reorderTimer); reorderTimer = null; }
 function preventTouchScroll(e){ if(reorderCard) e.preventDefault(); }
-function startCardReorder(card){
+let reorderCapturedId = null;
+function startCardReorder(card, pointerId){
   reorderCard = card;
   card.classList.add('card-dragging');
   gridEl.classList.add('reordering');
   suppressCardClick = true;
   try{ if(navigator.vibrate) navigator.vibrate(25); }catch(err){ /* 무시 */ }
+  // 손가락을 이 카드에 붙잡아둠(중간에 다른 요소로 이벤트가 새지 않게)
+  try{
+    if(pointerId != null && card.setPointerCapture){ card.setPointerCapture(pointerId); reorderCapturedId = pointerId; }
+  }catch(err){ /* 무시 */ }
   document.addEventListener('touchmove', preventTouchScroll, {passive:false}); // 끄는 동안 목록이 같이 스크롤되지 않게
 }
 function moveReorderTo(x, y){
@@ -1275,6 +1281,10 @@ function autoScrollLibrary(y){
 }
 function endCardReorder(){
   if(!reorderCard) return;
+  try{
+    if(reorderCapturedId != null && reorderCard.releasePointerCapture) reorderCard.releasePointerCapture(reorderCapturedId);
+  }catch(err){ /* 무시 */ }
+  reorderCapturedId = null;
   reorderCard.classList.remove('card-dragging');
   gridEl.classList.remove('reordering');
   document.removeEventListener('touchmove', preventTouchScroll);
@@ -1285,13 +1295,26 @@ function endCardReorder(){
   setTimeout(()=>{ suppressCardClick = false; }, 300); // 끌어 놓은 직후의 클릭만 막고 원래대로
 }
 function attachCardReorder(card){
+  // 꾹 누를 때 브라우저 기본 메뉴(이미지 저장 등)가 뜨면 드래그가 취소되므로 막음
+  card.addEventListener('contextmenu', (e)=>{ if(reorderCard || reorderTimer) e.preventDefault(); });
+  // 터치 기기 핵심: touchmove를 non-passive로 '미리' 걸어둬야 끄는 동안 화면이 스크롤되지 않고,
+  // 브라우저가 스크롤을 가져가면서 pointercancel로 드래그를 끊어버리는 것도 막을 수 있음.
+  // pointermove가 안 오는 상황에서도 이 좌표로 재배열이 돌아감.
+  card.addEventListener('touchmove', (e)=>{
+    if(!reorderCard) return;
+    e.preventDefault();
+    const t = e.touches && e.touches[0];
+    if(t){ moveReorderTo(t.clientX, t.clientY); autoScrollLibrary(t.clientY); }
+  }, {passive:false});
+  card.addEventListener('touchend', ()=>{ if(reorderCard) endCardReorder(); });
+  card.addEventListener('touchcancel', ()=>{ if(reorderCard) endCardReorder(); });
   card.addEventListener('pointerdown', (e)=>{
     if(e.target.closest('button')) return;                 // 카드 안의 버튼(폴더/동기화/삭제)은 제외
     if(e.pointerType === 'mouse' && e.button !== 0) return;
     reorderPointerId = e.pointerId;
     reorderStart = {x:e.clientX, y:e.clientY};
     cancelReorderTimer();
-    reorderTimer = setTimeout(()=> startCardReorder(card), CARD_LONG_PRESS_MS);
+    reorderTimer = setTimeout(()=> startCardReorder(card, e.pointerId), CARD_LONG_PRESS_MS);
   });
   card.addEventListener('pointermove', (e)=>{
     if(e.pointerId !== reorderPointerId || reorderCard) return;
@@ -1335,13 +1358,15 @@ function renderGrid(){
       ? `<img src="${nb.thumbnail}">`
       : `<div style="font-size:34px;">📝</div>`;
     card.innerHTML = `
-      <button class="card-folder-btn" data-id="${nb.id}" title="폴더로 이동">📁</button>
-      <button class="card-sync-btn${nb.syncOff ? ' off' : ''}" data-id="${nb.id}" title="${nb.syncOff ? '이 노트는 동기화 제외됨 (눌러서 다시 포함)' : '이 노트는 동기화 중 (눌러서 제외)'}">${nb.syncOff ? '🚫' : '☁️'}</button>
-      <button class="card-del" data-id="${nb.id}">✕</button>
-      <div class="card-thumb">${thumb}</div>
       <div class="card-body">
-        <div class="card-title">${escapeHtml(nb.title)}${nb.syncOff ? '<span class="card-nosync-badge">동기화 제외</span>' : ''}</div>
+        <div class="card-title">${escapeHtml(nb.title)}</div>
         <div class="card-meta">${nb.pages.length}쪽 · ${new Date(nb.updatedAt).toLocaleDateString('ko-KR')}</div>
+      </div>
+      <div class="card-thumb">
+        <button class="card-folder-btn" data-id="${nb.id}" title="폴더로 이동">📁</button>
+        <button class="card-sync-btn${nb.syncOff ? ' off' : ''}" data-id="${nb.id}" title="${nb.syncOff ? '이 노트는 동기화 제외됨 (눌러서 다시 포함)' : '이 노트는 동기화 중 (눌러서 제외)'}">${nb.syncOff ? '🚫' : '☁️'}</button>
+        <button class="card-del" data-id="${nb.id}">✕</button>
+        ${thumb}
       </div>`;
     card.addEventListener('click', (e)=>{
       if(e.target.closest('.card-del') || e.target.closest('.card-folder-btn') || e.target.closest('.card-sync-btn')) return;
