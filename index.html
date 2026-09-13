@@ -1647,6 +1647,10 @@ async function openNotebook(id){
   editorEl.style.display = 'flex';
   fitZoomToWidth(); // 열자마자 폭 맞춤 상태로
   renderAllPages();
+  // 페이지를 그린 뒤 세로 스크롤바가 생기면 쓸 수 있는 폭이 살짝 줄어듦 -> 실제 폭으로 한 번 더 맞춰줌
+  fitZoomToWidth();
+  stackEl.style.transform = `scale(${zoom})`;
+  centerIfFits();
   // 마지막으로 보던 페이지/위치에서 이어서 열기 (기록이 없으면 맨 위)
   if(validLast && (curPage > 0 || validLast.o > 0)){
     scrollToPage(curPage);
