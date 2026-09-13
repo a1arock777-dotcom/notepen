@@ -2847,6 +2847,18 @@ document.getElementById('size-value').addEventListener('blur', ()=> applySizeFro
 document.getElementById('size-value').addEventListener('keydown', (e)=>{ if(e.key==='Enter'){ applySizeFromInput(true); e.target.blur(); } });
 document.getElementById('size-value').value = size;
 document.getElementById('fav-add-size').textContent = size;
+/* 숫자 칸(굵기·형광펜 투명도)을 탭하면 기존 값이 통째로 선택되게 함
+   -> 지우기 키를 누를 필요 없이 바로 새 숫자만 입력하면 덮어쓰기 됨 */
+function selectAllOnFocus(el){
+  if(!el) return;
+  // number 입력은 setSelectionRange를 지원하지 않으므로 select()만 사용
+  const selectAll = ()=>{ try{ el.select(); }catch(err){ /* 무시 */ } };
+  el.addEventListener('focus', ()=> setTimeout(selectAll, 0));
+  el.addEventListener('click', selectAll);
+  el.addEventListener('pointerup', ()=> setTimeout(selectAll, 0));
+}
+selectAllOnFocus(document.getElementById('size-value'));
+selectAllOnFocus(document.getElementById('highlight-opacity-value'));
 
 /* ---------- 굵기 즐겨찾기 ---------- */
 let sizeFavs = [];
