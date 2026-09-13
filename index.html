@@ -56,6 +56,24 @@
   }
   .lib-title{ font-size:22px; font-weight:800; letter-spacing:-0.02em; }
   .lib-sub{ color:var(--text-dim); font-size:13px; margin-top:2px; }
+  /* ---------- 노트 제목 검색 ---------- */
+  .lib-search-wrap{ position:relative; margin-bottom:10px; }
+  #lib-search{
+    width:100%; box-sizing:border-box; padding:11px 38px 11px 38px; font-size:14px;
+    border-radius:999px; border:1px solid var(--border); background:var(--surface); color:var(--text);
+    outline:none;
+  }
+  #lib-search:focus{ border-color:var(--accent); }
+  .lib-search-wrap .search-ico{
+    position:absolute; left:14px; top:50%; transform:translateY(-50%);
+    font-size:14px; color:var(--text-dim); pointer-events:none;
+  }
+  #lib-search-clear{
+    position:absolute; right:8px; top:50%; transform:translateY(-50%);
+    width:26px; height:26px; border-radius:50%; border:none;
+    background:var(--surface-2); color:var(--text-dim); font-size:12px; cursor:pointer;
+    display:none; align-items:center; justify-content:center; padding:0;
+  }
   .new-btn{
     background:var(--accent); color:white; border:none; border-radius:999px;
     padding:11px 18px; font-size:14px; font-weight:700; display:flex; align-items:center; gap:6px;
@@ -432,6 +450,11 @@
         <button class="icon-btn" id="btn-sync" title="기기 간 동기화 설정" style="width:44px;height:44px;border-radius:50%;background:var(--surface);border:1px solid var(--border);margin-right:8px;">☁️</button>
         <button class="new-btn" id="btn-new">＋ 새 노트</button>
       </div>
+    </div>
+    <div class="lib-search-wrap">
+      <span class="search-ico">🔍</span>
+      <input id="lib-search" type="text" placeholder="노트 제목 검색" autocomplete="off">
+      <button type="button" id="lib-search-clear" title="검색어 지우기">✕</button>
     </div>
     <div class="folder-tabs" id="folder-tabs"></div>
     <div class="grid" id="grid"></div>
@@ -1098,6 +1121,31 @@ async function refreshLibrary(){
   renderFolderTabs();
   renderGrid();
 }
+/* ---------- 노트 제목 검색 ----------
+   라이브러리 목록을 제목에 검색어가 들어간 노트만 남기고 걸러줌(폴더 필터와 함께 적용됨). */
+let searchQuery = '';
+function matchesSearch(nb){
+  if(!searchQuery) return true;
+  return String(nb.title || '').toLowerCase().includes(searchQuery);
+}
+const libSearchInput = document.getElementById('lib-search');
+const libSearchClear = document.getElementById('lib-search-clear');
+function applySearchInput(){
+  searchQuery = libSearchInput.value.trim().toLowerCase();
+  libSearchClear.style.display = libSearchInput.value ? 'flex' : 'none';
+  renderGrid();
+}
+libSearchInput.addEventListener('input', applySearchInput);
+libSearchInput.addEventListener('keydown', (e)=>{
+  if(e.key === 'Escape'){ libSearchInput.value = ''; applySearchInput(); libSearchInput.blur(); }
+  else if(e.key === 'Enter'){ libSearchInput.blur(); } // 모바일에서 키보드 내리기
+});
+libSearchClear.addEventListener('click', ()=>{
+  libSearchInput.value = '';
+  applySearchInput();
+  libSearchInput.focus();
+});
+
 function renderFolderTabs(){
   const wrap = document.getElementById('folder-tabs');
   wrap.innerHTML = '';
@@ -1159,10 +1207,16 @@ function renderFolderTabs(){
   wrap.appendChild(addChip);
 }
 function renderGrid(){
-  const visible = activeFolderId===null ? notebooks : notebooks.filter(nb=> (nb.folderId||null)===activeFolderId);
+  const inFolder = activeFolderId===null ? notebooks : notebooks.filter(nb=> (nb.folderId||null)===activeFolderId);
+  const visible = searchQuery ? inFolder.filter(matchesSearch) : inFolder; // 제목 검색어로 한 번 더 거름
   gridEl.innerHTML = '';
   emptyMsg.style.display = visible.length ? 'none' : 'block';
-  libCount.textContent = visible.length + '개의 노트' + (activeFolderId!==null ? ` · ${folderName(activeFolderId)}` : '');
+  emptyMsg.innerHTML = searchQuery
+    ? '검색 결과가 없어요.<br>다른 낱말로 찾아보세요.'
+    : '아직 노트가 없어요.<br>PDF를 불러오거나 빈 노트를 만들어보세요.';
+  libCount.textContent = visible.length + '개의 노트'
+    + (activeFolderId!==null ? ` · ${folderName(activeFolderId)}` : '')
+    + (searchQuery ? ' · 검색 중' : '');
   visible.forEach(nb=>{
     const card = document.createElement('div');
     card.className = 'card';
