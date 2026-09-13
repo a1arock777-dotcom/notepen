@@ -121,6 +121,14 @@
     font-size:9.5px; cursor:pointer; padding:0 3px;
   }
   .card-sync-btn.off{ background:rgba(192,57,43,0.85); }
+  /* 상단 고정 토글 (라이브러리 카드) */
+  .card-pin-btn{
+    position:absolute; top:4px; right:28px; min-width:20px; height:20px; border-radius:50%;
+    background:rgba(0,0,0,0.55); color:white; border:none; display:flex; align-items:center; justify-content:center;
+    font-size:10px; cursor:pointer; padding:0 3px; opacity:0.65;
+  }
+  .card-pin-btn.on{ background:rgba(217,98,43,0.92); opacity:1; }
+  .card.card-pinned{ border-color:var(--accent); }
   .card-nosync-badge{
     display:inline-block; margin-left:6px; font-size:10px; padding:1px 5px; border-radius:8px;
     background:#ffe0e0; color:#c0392b; vertical-align:middle; font-weight:600;
@@ -1279,8 +1287,44 @@ function loadNoteOrder(){
 function saveNoteOrder(ids){
   try{ localStorage.setItem(NOTE_ORDER_KEY, JSON.stringify(ids)); }catch(e){ /* 저장 실패는 무시 */ }
 }
+/* ---------- 상단 고정 (📌) ----------
+   고정한 노트는 고정한 순서대로 목록 맨 위에 붙박이로 있고, 끌어서 순서를 바꿀 수 없음(먼저 고정을 풀어야 함).
+   새로 만든 노트는 고정 노트 바로 뒤에 들어옴. 순서와 마찬가지로 이 기기에만 저장함. */
+const NOTE_PIN_KEY = 'notepen_note_pins';
+let notePinRank = new Map(); // id -> 고정 순번 (렌더링·정렬에서 같이 씀)
+function loadNotePins(){
+  try{ const a = JSON.parse(localStorage.getItem(NOTE_PIN_KEY) || '[]'); return Array.isArray(a) ? a : []; }catch(e){ return []; }
+}
+function saveNotePins(ids){
+  try{ localStorage.setItem(NOTE_PIN_KEY, JSON.stringify(ids)); }catch(e){ /* 저장 실패는 무시 */ }
+}
+function isNotePinned(id){ return notePinRank.has(id); }
+async function toggleNotePin(nb){
+  const pins = loadNotePins();
+  const i = pins.indexOf(nb.id);
+  if(i >= 0){
+    pins.splice(i, 1);
+    saveNotePins(pins);
+    // 고정을 풀면 고정 노트 바로 뒤(= 고정 아닌 것들 중 맨 앞)로 옮겨둠 -> 그 자리에서 바로 끌어 옮길 수 있음
+    const order = loadNoteOrder().filter(id=> id !== nb.id);
+    order.unshift(nb.id);
+    saveNoteOrder(order);
+    toast('상단 고정을 풀었어요');
+  } else {
+    pins.push(nb.id);
+    saveNotePins(pins);
+    toast('상단 ' + pins.length + '번째로 고정했어요');
+  }
+  refreshLibrary();
+}
 function sortNotebooks(){
   const ids = new Set(notebooks.map(n=> n.id));
+  // 고정 목록 정리 (삭제된 노트는 빼기)
+  const savedPins = loadNotePins();
+  const pins = savedPins.filter(id=> ids.has(id));
+  if(pins.length !== savedPins.length) saveNotePins(pins);
+  notePinRank = new Map(pins.map((id,i)=> [id,i]));
+
   const saved = loadNoteOrder();
   const order = saved.filter(id=> ids.has(id));              // 삭제된 노트는 목록에서 제거
   const known = new Set(order);
@@ -1288,11 +1332,18 @@ function sortNotebooks(){
   const merged = fresh.concat(order);                         // 아직 순서를 안 정한(새) 노트는 맨 앞
   if(merged.length !== saved.length || merged.some((id,i)=> saved[i] !== id)) saveNoteOrder(merged);
   const rank = new Map(merged.map((id,i)=> [id,i]));
-  notebooks.sort((a,b)=> (rank.has(a.id)?rank.get(a.id):1e9) - (rank.has(b.id)?rank.get(b.id):1e9));
+  // 1순위: 고정한 노트(고정한 차례대로), 2순위: 내가 정해둔 순서(새 노트는 그 맨 앞 = 고정 노트 바로 뒤)
+  notebooks.sort((a,b)=>{
+    const pa = notePinRank.has(a.id) ? notePinRank.get(a.id) : Infinity;
+    const pb = notePinRank.has(b.id) ? notePinRank.get(b.id) : Infinity;
+    if(pa !== pb) return pa - pb;
+    return (rank.has(a.id)?rank.get(a.id):1e9) - (rank.has(b.id)?rank.get(b.id):1e9);
+  });
 }
 // 화면에 보이는 카드들의 순서를 전체 순서 목록에 반영 (폴더/검색으로 일부만 보일 때도 나머지 순서는 그대로 유지)
 function commitVisualOrder(){
-  const domIds = Array.from(gridEl.querySelectorAll('.card')).map(c=> c.dataset.id).filter(Boolean);
+  // 고정된 카드는 순서 재배치 대상에서 제외(자리가 고정이므로 order 목록의 그 항목도 건드리지 않음)
+  const domIds = Array.from(gridEl.querySelectorAll('.card')).filter(c=> c.dataset.pinned !== '1').map(c=> c.dataset.id).filter(Boolean);
   const order = loadNoteOrder();
   const domSet = new Set(domIds);
   const slots = [];
@@ -1324,6 +1375,7 @@ function moveReorderTo(x, y){
   const el = document.elementFromPoint(x, y);
   const over = el && el.closest ? el.closest('.card') : null;
   if(!over || over === reorderCard || over.parentElement !== gridEl) return;
+  if(over.dataset.pinned === '1') return; // 고정된 노트 자리에는 끼워넣을 수 없음
   const cards = Array.from(gridEl.children);
   const from = cards.indexOf(reorderCard), to = cards.indexOf(over);
   if(from < 0 || to < 0) return;
@@ -1370,7 +1422,11 @@ function attachCardReorder(card){
     reorderPointerId = e.pointerId;
     reorderStart = {x:e.clientX, y:e.clientY};
     cancelReorderTimer();
-    reorderTimer = setTimeout(()=> startCardReorder(card, e.pointerId), CARD_LONG_PRESS_MS);
+    const pid = e.pointerId;
+    reorderTimer = setTimeout(()=>{
+      if(card.dataset.pinned === '1'){ toast('고정된 노트예요. 📌을 눌러 고정을 풀면 옮길 수 있어요'); return; }
+      startCardReorder(card, pid);
+    }, CARD_LONG_PRESS_MS);
   });
   card.addEventListener('pointermove', (e)=>{
     if(e.pointerId !== reorderPointerId || reorderCard) return;
@@ -1408,8 +1464,10 @@ function renderGrid(){
     + (searchQuery ? ' · 검색 중' : '');
   visible.forEach(nb=>{
     const card = document.createElement('div');
-    card.className = 'card';
+    const pinned = isNotePinned(nb.id);
+    card.className = 'card' + (pinned ? ' card-pinned' : '');
     card.dataset.id = nb.id; // 순서 바꾸기에서 카드-노트를 이어주는 값
+    if(pinned) card.dataset.pinned = '1'; // 끌어서 옮기기·순서 저장에서 제외하는 표시
     const thumb = nb.thumbnail
       ? `<img src="${nb.thumbnail}">`
       : `<div style="font-size:34px;">📝</div>`;
@@ -1421,11 +1479,12 @@ function renderGrid(){
       <div class="card-thumb">
         <button class="card-folder-btn" data-id="${nb.id}" title="폴더로 이동">📁</button>
         <button class="card-sync-btn${nb.syncOff ? ' off' : ''}" data-id="${nb.id}" title="${nb.syncOff ? '이 노트는 동기화 제외됨 (눌러서 다시 포함)' : '이 노트는 동기화 중 (눌러서 제외)'}">${nb.syncOff ? '🚫' : '☁️'}</button>
+        <button class="card-pin-btn${pinned ? ' on' : ''}" data-id="${nb.id}" title="${pinned ? `상단 ${notePinRank.get(nb.id)+1}번째로 고정됨 (눌러서 해제)` : '상단에 고정하기'}">📌</button>
         <button class="card-del" data-id="${nb.id}">✕</button>
         ${thumb}
       </div>`;
     card.addEventListener('click', (e)=>{
-      if(e.target.closest('.card-del') || e.target.closest('.card-folder-btn') || e.target.closest('.card-sync-btn')) return;
+      if(e.target.closest('.card-del') || e.target.closest('.card-folder-btn') || e.target.closest('.card-sync-btn') || e.target.closest('.card-pin-btn')) return;
       if(suppressCardClick){ suppressCardClick = false; return; } // 순서를 바꾸려고 끈 경우엔 노트를 열지 않음
       openNotebook(nb.id);
     });
@@ -1445,6 +1504,10 @@ function renderGrid(){
       e.stopPropagation();
       await toggleNoteSync(nb);
       refreshLibrary();
+    });
+    card.querySelector('.card-pin-btn').addEventListener('click', async (e)=>{
+      e.stopPropagation();
+      await toggleNotePin(nb);
     });
     gridEl.appendChild(card);
   });
