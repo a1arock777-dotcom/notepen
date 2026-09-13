@@ -449,6 +449,21 @@
     font-size:11px; line-height:1.3; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
     pointer-events:none; z-index:57;
   }
+  /* ---------- 아이콘 짝 짓는 중 안내 띠 ---------- */
+  #pair-banner{
+    position:fixed; top:8px; left:50%; transform:translateX(-50%); z-index:95;
+    display:flex; align-items:center; gap:10px; max-width:92vw;
+    background:rgba(217,98,43,0.96); color:#fff; border-radius:999px;
+    padding:9px 12px 9px 16px; box-shadow:var(--shadow); font-size:12.5px; font-weight:600;
+  }
+  #pair-banner span{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  #pair-cancel{
+    flex:0 0 auto; background:rgba(0,0,0,0.25); border:none; color:#fff;
+    border-radius:999px; padding:5px 11px; font-size:12px; font-weight:700; cursor:pointer;
+  }
+  .page-shortcut.paired{
+    border-color:#2b6bd9; box-shadow:0 0 0 2px #2b6bd9, 0 3px 8px rgba(0,0,0,0.22);
+  }
   /* ---------- 올가미 선택 상자 ---------- */
   .sel-box{
     position:absolute; z-index:57; border:2px dashed var(--accent); border-radius:6px;
@@ -571,6 +586,7 @@
       <button class="opt-btn" id="opt-pdf">📄 PDF 불러오기<small>PDF 위에 필기 · 레이어 · 마스킹 사용 가능</small></button>
       <button class="opt-btn" id="opt-blank">✏️ 빈 노트 만들기<small>빈 캔버스에서 자유롭게 필기</small></button>
       <button class="opt-btn" id="opt-link" style="display:none;">🔗 이미 있는 노트에 연결<small>제목으로 찾아서 이 아이콘에 연결해요</small></button>
+      <button class="opt-btn" id="opt-pair" style="display:none;">↔️ 다른 아이콘과 짝 짓기<small>짝지은 두 아이콘은 서로 오갈 수 있어요</small></button>
       <button class="modal-close" id="modal-close">취소</button>
     </div>
   </div>
@@ -869,6 +885,10 @@
     </div>
   </div>
 
+  <div id="pair-banner" style="display:none;">
+    <span id="pair-banner-text">짝지을 아이콘을 누르세요</span>
+    <button type="button" id="pair-cancel">취소</button>
+  </div>
   <div class="toast" id="toast"></div>
 </div>
 
@@ -1645,6 +1665,8 @@ document.getElementById('btn-new').onclick = ()=>{ pendingShortcutLink = null; p
 function showNewNoteModal(forShortcut){
   const linkBtn = document.getElementById('opt-link');
   if(linkBtn) linkBtn.style.display = forShortcut ? 'flex' : 'none';
+  const pairBtn = document.getElementById('opt-pair');
+  if(pairBtn) pairBtn.style.display = forShortcut ? 'flex' : 'none';
   document.getElementById('modal').style.display = 'flex';
 }
 document.getElementById('modal-close').onclick = ()=>{ pendingShortcutLink = null; pendingShortcutOrigin = null; document.getElementById('modal').style.display='none'; };
@@ -1791,7 +1813,7 @@ wrapEl.addEventListener('scroll', ()=>{
   scrollRaf = requestAnimationFrame(()=>{ scrollRaf = null; updatePageIndicatorFromScroll(); });
 });
 
-async function openNotebook(id, targetPage){
+async function openNotebook(id, targetPage, targetShortcutId){
   const all = await dbGetAll();
   const found = all.find(n=>n.id===id);
   // 찾는 노트가 없으면(예: 바로가기 아이콘이 가리키던 노트가 삭제된 경우) 지금 보던 노트를 그대로 유지함
@@ -1873,6 +1895,8 @@ async function openNotebook(id, targetPage){
   } else {
     wrapEl.scrollTop = 0;
   }
+  // 짝지은 아이콘을 눌러서 온 경우, 그 상대 아이콘이 화면 가운데 오도록 맞추고 잠깐 반짝여줌
+  if(targetShortcutId) scrollToShortcut(wantPage !== null ? wantPage : curPage, targetShortcutId);
   refreshLayersPanel();
   // 이 노트가 바로가기 아이콘으로 만들어진 노트라면(linkedFrom이 있으면), 라이브러리에서 바로 들어왔더라도
   // 원래 아이콘이 있던 곳으로 돌아갈 수 있게 버튼을 보여줌.
@@ -2939,11 +2963,23 @@ function createShortcutElement(page, pageIdx, sc){
   const el = document.createElement('div');
   el.className = 'page-shortcut';
   el.dataset.id = sc.id;
-  el.textContent = '📄';
-  if(sc.linkedNotebookId) el.classList.add('linked');
+  el.textContent = sc.pair ? '↔️' : '📄';
+  if(sc.linkedNotebookId && !sc.pair) el.classList.add('linked');
+  if(sc.pair) el.classList.add('paired');
+
+  // 짝지은 아이콘: 상대가 어느 노트 몇 쪽에 있는지 위에 띄워줌
+  if(sc.pair){
+    const plabel = document.createElement('div');
+    plabel.className = 'shortcut-label';
+    el.appendChild(plabel);
+    const p = sc.pair;
+    const pgTxt = ' · ' + ((p.pageIdx || 0) + 1) + '쪽';
+    if(current && p.noteId === current.id) plabel.textContent = '이 노트' + pgTxt;
+    else dbGetOne(p.noteId).then(nb=>{ plabel.textContent = (nb ? (nb.title || '(제목 없음)') : '(삭제된 노트)') + pgTxt; });
+  }
 
   // 아이콘이 어느 노트로 이어지는지 위에 조그맣게 노트 제목을 띄워줌
-  if(sc.linkedNotebookId){
+  if(sc.linkedNotebookId && !sc.pair){
     const label = document.createElement('div');
     label.className = 'shortcut-label';
     el.appendChild(label);
@@ -3039,7 +3075,11 @@ function createShortcutElement(page, pageIdx, sc){
     if(wasMoved){
       scheduleSave();
     } else if(!wasArmed){
-      if(sc.linkedNotebookId){
+      if(pairingFrom){
+        completePairWith(sc, pageIdx); // 짝 짓는 중이면 이 아이콘이 상대가 됨
+      } else if(sc.pair){
+        goToPair(sc); // 짝지은 반대쪽 아이콘으로 감
+      } else if(sc.linkedNotebookId){
         // 이미 연결된 노트가 있으면 새로 만들지 않고 그 노트(지정한 쪽)로 바로 감.
         // 그 노트 자체에 linkedFrom(원래 자리)이 저장되어 있으므로 별도로 기록할 필요 없음.
         const toPage = (typeof sc.linkedPage === 'number') ? sc.linkedPage : 0;
@@ -3104,6 +3144,7 @@ function placeShortcutAt(e){
   block.appendChild(createShortcutElement(page, pageIdx, sc));
   scheduleSave();
   setPlacingShortcut(false);
+  if(pairingFrom) completePairWith(sc, pageIdx); // 짝 짓는 중이면 방금 놓은 아이콘이 바로 상대가 됨
 }
 // 바로가기 아이콘을 탭해서 "새 노트 만들기"가 열렸을 때 기억해둔 아이콘(pendingShortcutLink)이 있으면,
 // 방금 만들어진 노트의 id를 그 아이콘에 저장해서 다음부터는 탭하면 바로 이 노트가 열리게 함.
@@ -3196,6 +3237,101 @@ async function linkShortcutToExisting(nb, page){
   toast('"' + (nb.title || '제목 없음') + '" ' + (page + 1) + '쪽에 연결했어요');
   linkPickedNote = null;
 }
+/* ---------- 아이콘 짝 짓기 (↔️) ----------
+   두 개의 바로가기 아이콘을 서로 연결해서, 한쪽을 누르면 상대 아이콘이 있는 노트·쪽·위치로 가고
+   상대 아이콘을 누르면 다시 원래 자리로 돌아옴. 각 아이콘에 sc.pair = {noteId, pageIdx, shortcutId}를
+   양쪽 모두 저장함(노트 데이터라 동기화됨). */
+let pairingFrom = null; // 짝 지을 첫 번째 아이콘 {noteId, pageIdx, shortcutId}
+function setPairingMode(info){
+  pairingFrom = info;
+  const banner = document.getElementById('pair-banner');
+  if(!banner) return;
+  if(info){
+    document.getElementById('pair-banner-text').textContent =
+      '↔️ 짝지을 아이콘을 누르세요 — 다른 노트로 가서 📄로 새로 놓아도 됩니다';
+    banner.style.display = 'flex';
+  } else {
+    banner.style.display = 'none';
+  }
+}
+function startPairing(){
+  if(!pendingShortcutLink || !pendingShortcutOrigin){ toast('짝 지을 아이콘이 없어요'); return; }
+  const origin = pendingShortcutOrigin;
+  document.getElementById('modal').style.display = 'none';
+  pendingShortcutLink = null; pendingShortcutOrigin = null;
+  setPairingMode({ noteId: origin.notebookId, pageIdx: origin.pageIdx, shortcutId: origin.shortcutId });
+  toast('짝지을 아이콘을 눌러주세요');
+}
+// 아이콘 한 개만 다시 그려서 모양(짝지음 표시·라벨)을 바로 반영
+function refreshShortcutEl(pageIdx, shortcutId){
+  const oldEl = stackEl.querySelector(`.page-shortcut[data-id="${shortcutId}"]`);
+  const page = current && current.pages[pageIdx];
+  const sc = page && page.shortcuts ? page.shortcuts.find(s=> s.id === shortcutId) : null;
+  if(oldEl && oldEl.parentElement && sc){
+    oldEl.parentElement.replaceChild(createShortcutElement(page, pageIdx, sc), oldEl);
+  }
+}
+async function completePairWith(sc, pageIdx){
+  const from = pairingFrom;
+  if(!from || !current) return;
+  if(from.noteId === current.id && from.shortcutId === sc.id){
+    toast('같은 아이콘끼리는 짝지을 수 없어요');
+    return;
+  }
+  const here = { noteId: current.id, pageIdx, shortcutId: sc.id };
+  sc.pair = { noteId: from.noteId, pageIdx: from.pageIdx, shortcutId: from.shortcutId };
+  sc.linkedNotebookId = null; // 짝 짓기는 기존 '노트 연결'을 대신함
+  let okOther = false;
+  if(from.noteId === current.id){
+    const pg = current.pages[from.pageIdx];
+    const other = (pg && pg.shortcuts) ? pg.shortcuts.find(s=> s.id === from.shortcutId) : null;
+    if(other){ other.pair = here; other.linkedNotebookId = null; okOther = true; }
+    await persist(true);
+    refreshShortcutEl(from.pageIdx, from.shortcutId);
+  } else {
+    const nb = await dbGetOne(from.noteId);
+    const pg = nb && nb.pages[from.pageIdx];
+    const other = (pg && pg.shortcuts) ? pg.shortcuts.find(s=> s.id === from.shortcutId) : null;
+    if(other){ other.pair = here; other.linkedNotebookId = null; await dbPut(nb); okOther = true; }
+    await persist(true);
+  }
+  setPairingMode(null);
+  refreshShortcutEl(pageIdx, sc.id);
+  toast(okOther ? '두 아이콘을 짝지었어요 — 서로 오갈 수 있어요' : '상대 아이콘을 찾지 못했어요');
+}
+// 지정한 쪽으로 간 뒤, 그 쪽에 있는 아이콘이 화면 가운데 오도록 맞추고 잠깐 반짝여줌
+function scrollToShortcut(pageIdx, shortcutId){
+  if(!current || !(pageIdx >= 0) || pageIdx >= current.pages.length) return false;
+  ensureBlockBuilt(pageIdx);
+  scrollToPage(pageIdx);
+  const el = stackEl.querySelector(`.page-shortcut[data-id="${shortcutId}"]`);
+  if(!el) return false;
+  const wrapRect = wrapEl.getBoundingClientRect();
+  const r = el.getBoundingClientRect();
+  wrapEl.scrollTop += (r.top - wrapRect.top) - wrapRect.height/2 + r.height/2;
+  wrapEl.scrollLeft += (r.left - wrapRect.left) - wrapRect.width/2 + r.width/2;
+  curPage = pageIdx;
+  updatePageIndicatorFromScroll();
+  el.classList.remove('flash');
+  void el.offsetWidth; // 애니메이션을 다시 시작시키기 위해 강제로 다시 계산
+  el.classList.add('flash');
+  setTimeout(()=>{ el.classList.remove('flash'); }, 2400);
+  return true;
+}
+async function goToPair(sc){
+  const p = sc.pair;
+  if(!p) return;
+  if(current && p.noteId === current.id){
+    if(!scrollToShortcut(p.pageIdx, p.shortcutId)) toast('짝 아이콘을 찾지 못했어요');
+  } else {
+    await openNotebook(p.noteId, p.pageIdx, p.shortcutId);
+  }
+}
+document.getElementById('opt-pair').addEventListener('click', startPairing);
+document.getElementById('pair-cancel').addEventListener('click', ()=>{
+  setPairingMode(null);
+  toast('짝 짓기를 취소했어요');
+});
 document.getElementById('opt-link').onclick = openShortcutLinkPicker;
 document.getElementById('link-search').addEventListener('input', renderLinkPickerList);
 document.getElementById('link-page-ok').addEventListener('click', confirmLinkPage);
