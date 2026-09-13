@@ -189,6 +189,20 @@
     width:38px; height:38px; border-radius:10px; border:2px solid var(--border); cursor:pointer; flex:0 0 auto;
   }
   .bg-swatch.sel{ border-color:var(--accent); box-shadow:0 0 0 2px var(--accent) inset; }
+  /* 즐겨찾기 노트 양식 */
+  .fav-note-label{ font-size:12px; color:var(--text-dim); margin:2px 0 7px; font-weight:700; }
+  .fav-note-row{ display:flex; align-items:center; gap:6px; margin-bottom:8px; }
+  .fav-note-btn{
+    flex:1 1 auto; display:flex; align-items:center; gap:9px; padding:10px 12px; border-radius:12px;
+    border:1px solid var(--border); background:var(--surface-2); color:var(--text);
+    font-size:13.5px; font-weight:600; cursor:pointer; text-align:left;
+  }
+  .fav-note-dot{ width:20px; height:20px; border-radius:6px; border:1px solid var(--border); flex:0 0 auto; }
+  .fav-note-sub{ font-weight:400; color:var(--text-dim); font-size:11.5px; margin-left:auto; }
+  .fav-note-del{
+    flex:0 0 auto; width:28px; height:28px; border-radius:50%; border:none;
+    background:transparent; color:var(--text-dim); font-size:13px; cursor:pointer;
+  }
   .lined-toggle{
     display:flex; align-items:center; gap:8px; font-size:13.5px; color:var(--text); cursor:pointer;
   }
@@ -479,6 +493,10 @@
     <div class="modal">
       <h3>새 노트 만들기</h3>
       <p>PDF를 불러와 필기하거나, 빈 노트에서 바로 시작하세요.</p>
+      <div id="fav-note-wrap" style="display:none; margin-bottom:12px;">
+        <div class="fav-note-label">⭐ 즐겨찾기 양식 (누르면 바로 만들어져요)</div>
+        <div id="fav-note-list"></div>
+      </div>
       <button class="opt-btn" id="opt-pdf">📄 PDF 불러오기<small>PDF 위에 필기 · 레이어 · 마스킹 사용 가능</small></button>
       <button class="opt-btn" id="opt-blank">✏️ 빈 노트 만들기<small>빈 캔버스에서 자유롭게 필기</small></button>
       <button class="modal-close" id="modal-close">취소</button>
@@ -498,6 +516,7 @@
       </div>
       <label class="lined-toggle"><input type="checkbox" id="lined-check"> 줄 노트로 만들기</label>
       <button class="opt-btn" id="blank-create-btn" style="margin-top:14px;">✏️ 이 스타일로 만들기</button>
+      <button class="opt-btn" id="blank-fav-btn">⭐ 이 스타일을 즐겨찾기에 추가<small>다음부터 '새 노트'에서 한 번에 만들 수 있어요</small></button>
       <button class="modal-close" id="modal-blank-close">취소</button>
     </div>
   </div>
@@ -1424,7 +1443,7 @@ document.addEventListener('click', ()=> document.getElementById('folder-move-pop
 
 function escapeHtml(s){ const d=document.createElement('div'); d.textContent=s; return d.innerHTML; }
 
-document.getElementById('btn-new').onclick = ()=>{ pendingShortcutLink = null; pendingShortcutOrigin = null; document.getElementById('modal').style.display='flex'; };
+document.getElementById('btn-new').onclick = ()=>{ pendingShortcutLink = null; pendingShortcutOrigin = null; renderNoteFavs(); document.getElementById('modal').style.display='flex'; };
 document.getElementById('modal-close').onclick = ()=>{ pendingShortcutLink = null; pendingShortcutOrigin = null; document.getElementById('modal').style.display='none'; };
 let pendingBgColor = '#ffffff';
 document.getElementById('opt-blank').onclick = ()=>{
@@ -1441,21 +1460,80 @@ document.querySelectorAll('#bgcolor-group .bg-swatch').forEach(sw=>{
     document.querySelectorAll('#bgcolor-group .bg-swatch').forEach(s=>s.classList.toggle('sel', s===sw));
   });
 });
-document.getElementById('blank-create-btn').onclick = async ()=>{
-  const lined = document.getElementById('lined-check').checked;
-  document.getElementById('modal-blank').style.display='none';
+/* ---------- 빈 노트 즐겨찾기 양식 ----------
+   자주 쓰는 배경색+줄노트 조합을 저장해두고 '새 노트' 창에서 한 번에 만들 수 있게 함(이 기기에 저장). */
+const NOTE_FAV_KEY = 'notepen_note_favs';
+function loadNoteFavs(){
+  try{ const a = JSON.parse(localStorage.getItem(NOTE_FAV_KEY) || '[]'); return Array.isArray(a) ? a : []; }catch(e){ return []; }
+}
+function saveNoteFavs(list){
+  try{ localStorage.setItem(NOTE_FAV_KEY, JSON.stringify(list)); }catch(e){ /* 무시 */ }
+}
+function bgColorName(hex){
+  const names = {'#ffffff':'흰색', '#fff8dc':'노랑', '#ffe3ec':'핑크', '#e0edff':'파랑'};
+  return names[String(hex||'').toLowerCase()] || '사용자 색';
+}
+async function createBlankNote(bgColor, lined){
   const nb = {
     id: uid(), title:'제목 없는 노트', type:'blank',
     createdAt: Date.now(), updatedAt: Date.now(),
     pdfBuffer: null, thumbnail:null,
-    bgColor: pendingBgColor, bgLined: lined, folderId: activeFolderId,
-    pages: [ makeBlankPage(pendingBgColor, lined) ]
+    bgColor: bgColor, bgLined: !!lined, folderId: activeFolderId,
+    pages: [ makeBlankPage(bgColor, !!lined) ]
   };
-  if(pendingShortcutOrigin) nb.linkedFrom = pendingShortcutOrigin; // 바로가기 아이콘으로 만든 노트는 원래 자리를 기억해둠(라이브러리로 들어와도 돌아갈 수 있게)
+  if(pendingShortcutOrigin) nb.linkedFrom = pendingShortcutOrigin; // 바로가기 아이콘으로 만든 노트는 원래 자리를 기억해둠
   await dbPut(nb);
   await linkPendingShortcutTo(nb.id);
   await refreshLibrary();
   openNotebook(nb.id);
+}
+function renderNoteFavs(){
+  const wrap = document.getElementById('fav-note-wrap');
+  const list = document.getElementById('fav-note-list');
+  if(!wrap || !list) return;
+  const favs = loadNoteFavs();
+  list.innerHTML = '';
+  wrap.style.display = favs.length ? 'block' : 'none';
+  favs.forEach((f, i)=>{
+    const row = document.createElement('div');
+    row.className = 'fav-note-row';
+    const btn = document.createElement('button');
+    btn.type = 'button'; btn.className = 'fav-note-btn';
+    btn.innerHTML = '<span class="fav-note-dot" style="background:' + (f.bgColor || '#ffffff') + '"></span>' +
+      '<span>즐겨찾기 ' + (i+1) + '</span>' +
+      '<span class="fav-note-sub">' + bgColorName(f.bgColor) + (f.lined ? ' · 줄노트' : ' · 무지') + '</span>';
+    btn.addEventListener('click', async ()=>{
+      document.getElementById('modal').style.display = 'none';
+      await createBlankNote(f.bgColor, f.lined);
+    });
+    const del = document.createElement('button');
+    del.type = 'button'; del.className = 'fav-note-del'; del.textContent = '✕'; del.title = '이 즐겨찾기 지우기';
+    del.addEventListener('click', (e)=>{
+      e.stopPropagation();
+      const cur = loadNoteFavs();
+      cur.splice(i, 1);
+      saveNoteFavs(cur);
+      renderNoteFavs();
+      toast('즐겨찾기를 지웠어요');
+    });
+    row.appendChild(btn); row.appendChild(del);
+    list.appendChild(row);
+  });
+}
+document.getElementById('blank-fav-btn').onclick = ()=>{
+  const lined = document.getElementById('lined-check').checked;
+  const favs = loadNoteFavs();
+  if(favs.some(f=> f.bgColor === pendingBgColor && !!f.lined === lined)){ toast('이미 같은 양식이 즐겨찾기에 있어요'); return; }
+  if(favs.length >= 6){ toast('즐겨찾기는 6개까지 저장할 수 있어요'); return; }
+  favs.push({bgColor: pendingBgColor, lined: lined});
+  saveNoteFavs(favs);
+  renderNoteFavs();
+  toast('즐겨찾기 ' + favs.length + '번으로 저장했어요');
+};
+document.getElementById('blank-create-btn').onclick = async ()=>{
+  const lined = document.getElementById('lined-check').checked;
+  document.getElementById('modal-blank').style.display='none';
+  await createBlankNote(pendingBgColor, lined);
 };
 document.getElementById('opt-pdf').onclick = ()=>{
   if(!PDFJS_AVAILABLE){ toast('PDF 기능을 불러오지 못했어요. 인터넷 연결을 확인해주세요.'); return; }
@@ -1567,6 +1645,7 @@ async function openNotebook(id){
   }
   libraryEl.style.display = 'none';
   editorEl.style.display = 'flex';
+  fitZoomToWidth(); // 열자마자 폭 맞춤 상태로
   renderAllPages();
   // 마지막으로 보던 페이지/위치에서 이어서 열기 (기록이 없으면 맨 위)
   if(validLast && (curPage > 0 || validLast.o > 0)){
@@ -1985,6 +2064,15 @@ function centerIfFits(){
   }
 }
 let savedZoom = null; // 폭맞춤 전에 보던 확대 배율(더블탭으로 되돌아갈 값)
+// 노트를 열 때 기본으로 페이지 폭에 맞춰 보여줌(좌우 여백이 남지 않게)
+function fitZoomToWidth(){
+  if(!current || !current.pages.length) return;
+  const maxW = Math.max(...current.pages.map(p=> p.width));
+  const available = wrapEl.clientWidth - 20;
+  if(!(available > 0) || !(maxW > 0)) return;
+  zoom = Math.max(0.3, Math.min(10, available / maxW));
+  savedZoom = null;
+}
 function fitPageWidth(anchorClientX, anchorClientY){
   if(!current) return;
   const maxW = Math.max(...current.pages.map(p=>p.width));
