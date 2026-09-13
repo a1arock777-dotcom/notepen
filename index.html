@@ -88,6 +88,13 @@
     overflow:hidden; box-shadow:var(--shadow); cursor:pointer; position:relative;
     display:flex; flex-direction:column;
   }
+  /* 꾹 눌러서 순서 바꾸기 */
+  .card{ -webkit-user-select:none; user-select:none; }
+  .card.card-dragging{
+    opacity:0.92; transform:scale(1.05); border-color:var(--accent);
+    box-shadow:0 10px 26px rgba(0,0,0,0.28); z-index:5;
+  }
+  .grid.reordering{ touch-action:none; }
   .card-thumb{
     width:100%; aspect-ratio:3/4; background:var(--surface-2); display:flex; align-items:center; justify-content:center;
     overflow:hidden;
@@ -1117,7 +1124,7 @@ function folderName(id){
 
 async function refreshLibrary(){
   notebooks = await dbGetAll();
-  notebooks.sort((a,b)=> b.updatedAt - a.updatedAt);
+  sortNotebooks(); // 내가 정해둔 순서대로 (없으면 최근 수정순)
   renderFolderTabs();
   renderGrid();
 }
@@ -1206,6 +1213,109 @@ function renderFolderTabs(){
   });
   wrap.appendChild(addChip);
 }
+/* ---------- 노트 순서 직접 바꾸기 (카드를 꾹 눌러서 끌어 놓기) ----------
+   순서는 이 기기에만 저장함(localStorage). 새로 만든 노트는 맨 앞, 삭제된 노트는 자동으로 정리됨. */
+const NOTE_ORDER_KEY = 'notepen_note_order';
+function loadNoteOrder(){
+  try{ const a = JSON.parse(localStorage.getItem(NOTE_ORDER_KEY) || '[]'); return Array.isArray(a) ? a : []; }catch(e){ return []; }
+}
+function saveNoteOrder(ids){
+  try{ localStorage.setItem(NOTE_ORDER_KEY, JSON.stringify(ids)); }catch(e){ /* 저장 실패는 무시 */ }
+}
+function sortNotebooks(){
+  const ids = new Set(notebooks.map(n=> n.id));
+  const saved = loadNoteOrder();
+  const order = saved.filter(id=> ids.has(id));              // 삭제된 노트는 목록에서 제거
+  const known = new Set(order);
+  const fresh = notebooks.filter(n=> !known.has(n.id)).sort((a,b)=> b.updatedAt - a.updatedAt).map(n=> n.id);
+  const merged = fresh.concat(order);                         // 아직 순서를 안 정한(새) 노트는 맨 앞
+  if(merged.length !== saved.length || merged.some((id,i)=> saved[i] !== id)) saveNoteOrder(merged);
+  const rank = new Map(merged.map((id,i)=> [id,i]));
+  notebooks.sort((a,b)=> (rank.has(a.id)?rank.get(a.id):1e9) - (rank.has(b.id)?rank.get(b.id):1e9));
+}
+// 화면에 보이는 카드들의 순서를 전체 순서 목록에 반영 (폴더/검색으로 일부만 보일 때도 나머지 순서는 그대로 유지)
+function commitVisualOrder(){
+  const domIds = Array.from(gridEl.querySelectorAll('.card')).map(c=> c.dataset.id).filter(Boolean);
+  const order = loadNoteOrder();
+  const domSet = new Set(domIds);
+  const slots = [];
+  order.forEach((id, i)=>{ if(domSet.has(id)) slots.push(i); });
+  domIds.forEach((id, k)=>{ if(slots[k] !== undefined) order[slots[k]] = id; });
+  saveNoteOrder(order);
+}
+const CARD_LONG_PRESS_MS = 500;
+const CARD_DRAG_CANCEL_MOVE = 10; // 꾹 누르기 전에 이만큼 움직이면 스크롤로 간주
+let suppressCardClick = false;
+let reorderCard = null, reorderPointerId = null, reorderTimer = null, reorderStart = null;
+function cancelReorderTimer(){ clearTimeout(reorderTimer); reorderTimer = null; }
+function preventTouchScroll(e){ if(reorderCard) e.preventDefault(); }
+function startCardReorder(card){
+  reorderCard = card;
+  card.classList.add('card-dragging');
+  gridEl.classList.add('reordering');
+  suppressCardClick = true;
+  try{ if(navigator.vibrate) navigator.vibrate(25); }catch(err){ /* 무시 */ }
+  document.addEventListener('touchmove', preventTouchScroll, {passive:false}); // 끄는 동안 목록이 같이 스크롤되지 않게
+}
+function moveReorderTo(x, y){
+  if(!reorderCard) return;
+  const el = document.elementFromPoint(x, y);
+  const over = el && el.closest ? el.closest('.card') : null;
+  if(!over || over === reorderCard || over.parentElement !== gridEl) return;
+  const cards = Array.from(gridEl.children);
+  const from = cards.indexOf(reorderCard), to = cards.indexOf(over);
+  if(from < 0 || to < 0) return;
+  if(from < to) gridEl.insertBefore(reorderCard, over.nextSibling);
+  else gridEl.insertBefore(reorderCard, over);
+}
+function autoScrollLibrary(y){
+  const h = window.innerHeight;
+  if(y < 90) libraryEl.scrollTop -= 14;
+  else if(y > h - 90) libraryEl.scrollTop += 14;
+}
+function endCardReorder(){
+  if(!reorderCard) return;
+  reorderCard.classList.remove('card-dragging');
+  gridEl.classList.remove('reordering');
+  document.removeEventListener('touchmove', preventTouchScroll);
+  reorderCard = null;
+  commitVisualOrder();
+  refreshLibrary();
+  toast('순서를 저장했어요');
+  setTimeout(()=>{ suppressCardClick = false; }, 300); // 끌어 놓은 직후의 클릭만 막고 원래대로
+}
+function attachCardReorder(card){
+  card.addEventListener('pointerdown', (e)=>{
+    if(e.target.closest('button')) return;                 // 카드 안의 버튼(폴더/동기화/삭제)은 제외
+    if(e.pointerType === 'mouse' && e.button !== 0) return;
+    reorderPointerId = e.pointerId;
+    reorderStart = {x:e.clientX, y:e.clientY};
+    cancelReorderTimer();
+    reorderTimer = setTimeout(()=> startCardReorder(card), CARD_LONG_PRESS_MS);
+  });
+  card.addEventListener('pointermove', (e)=>{
+    if(e.pointerId !== reorderPointerId || reorderCard) return;
+    if(reorderStart && Math.hypot(e.clientX - reorderStart.x, e.clientY - reorderStart.y) > CARD_DRAG_CANCEL_MOVE){
+      cancelReorderTimer(); // 길게 누르기 전에 움직였으면 순서 바꾸기가 아니라 스크롤
+    }
+  });
+}
+document.addEventListener('pointermove', (e)=>{
+  if(!reorderCard || e.pointerId !== reorderPointerId) return;
+  moveReorderTo(e.clientX, e.clientY);
+  autoScrollLibrary(e.clientY);
+});
+document.addEventListener('pointerup', (e)=>{
+  if(e.pointerId !== reorderPointerId) return;
+  cancelReorderTimer();
+  reorderPointerId = null;
+  if(reorderCard) endCardReorder();
+});
+document.addEventListener('pointercancel', (e)=>{
+  cancelReorderTimer();
+  if(e.pointerId === reorderPointerId){ reorderPointerId = null; if(reorderCard) endCardReorder(); }
+});
+
 function renderGrid(){
   const inFolder = activeFolderId===null ? notebooks : notebooks.filter(nb=> (nb.folderId||null)===activeFolderId);
   const visible = searchQuery ? inFolder.filter(matchesSearch) : inFolder; // 제목 검색어로 한 번 더 거름
@@ -1220,6 +1330,7 @@ function renderGrid(){
   visible.forEach(nb=>{
     const card = document.createElement('div');
     card.className = 'card';
+    card.dataset.id = nb.id; // 순서 바꾸기에서 카드-노트를 이어주는 값
     const thumb = nb.thumbnail
       ? `<img src="${nb.thumbnail}">`
       : `<div style="font-size:34px;">📝</div>`;
@@ -1234,8 +1345,10 @@ function renderGrid(){
       </div>`;
     card.addEventListener('click', (e)=>{
       if(e.target.closest('.card-del') || e.target.closest('.card-folder-btn') || e.target.closest('.card-sync-btn')) return;
+      if(suppressCardClick){ suppressCardClick = false; return; } // 순서를 바꾸려고 끈 경우엔 노트를 열지 않음
       openNotebook(nb.id);
     });
+    attachCardReorder(card); // 꾹 눌러서 순서 바꾸기
     card.querySelector('.card-del').addEventListener('click', async (e)=>{
       e.stopPropagation();
       if(confirm(`"${nb.title}" 노트를 삭제할까요?`)){
