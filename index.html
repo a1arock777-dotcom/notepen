@@ -579,9 +579,33 @@
     <div class="modal">
       <h3>이미 있는 노트에 연결</h3>
       <p>이 바로가기 아이콘을 눌렀을 때 열릴 노트를 골라주세요.</p>
-      <input type="text" id="link-search" placeholder="제목으로 찾기" autocomplete="off">
-      <div id="link-note-list" style="max-height:44vh; overflow-y:auto;"></div>
+      <div id="link-step-note">
+        <input type="text" id="link-search" placeholder="제목으로 찾기" autocomplete="off">
+        <div id="link-note-list" style="max-height:44vh; overflow-y:auto;"></div>
+      </div>
+      <div id="link-step-page" style="display:none;">
+        <div id="link-picked" style="font-size:13.5px; font-weight:700; margin:2px 0 10px;"></div>
+        <div style="font-size:12.5px; color:var(--text-dim); margin-bottom:6px;">몇 쪽으로 갈까요?</div>
+        <input type="number" id="link-page-input" min="1" value="1">
+        <button class="opt-btn" id="link-page-ok">✔️ 이 쪽으로 연결</button>
+        <button class="opt-btn" id="link-page-back">← 노트 다시 고르기</button>
+      </div>
       <button class="modal-close" id="modal-link-close">취소</button>
+    </div>
+  </div>
+
+  <!-- PER-NOTE DEFAULT PEN -->
+  <div class="modal-backdrop" id="modal-pen-default" style="display:none;">
+    <div class="modal">
+      <h3>이 노트의 기본 펜</h3>
+      <p>이 노트를 열 때마다 여기서 정한 색·굵기로 시작해요. 필기하다 바꾸는 건 자유고, 다시 열면 이 설정으로 돌아옵니다.</p>
+      <div style="display:flex; align-items:center; gap:9px; margin-bottom:14px;">
+        <span id="pen-default-dot" style="width:22px; height:22px; border-radius:50%; border:1px solid var(--border); flex:0 0 auto;"></span>
+        <span id="pen-default-now" style="font-size:12.5px; color:var(--text-dim); line-height:1.5;"></span>
+      </div>
+      <button class="opt-btn" id="pen-default-save"></button>
+      <button class="opt-btn" id="pen-default-clear">🗑️ 기본값 해제<small>이 노트도 다른 노트처럼 직전 설정을 그대로 씁니다</small></button>
+      <button class="modal-close" id="modal-pen-default-close">닫기</button>
     </div>
   </div>
 
@@ -1716,20 +1740,23 @@ wrapEl.addEventListener('scroll', ()=>{
   scrollRaf = requestAnimationFrame(()=>{ scrollRaf = null; updatePageIndicatorFromScroll(); });
 });
 
-async function openNotebook(id){
+async function openNotebook(id, targetPage){
   const all = await dbGetAll();
   const found = all.find(n=>n.id===id);
   // 찾는 노트가 없으면(예: 바로가기 아이콘이 가리키던 노트가 삭제된 경우) 지금 보던 노트를 그대로 유지함
   if(!found){ toast('노트를 찾을 수 없어요.'); return; }
   current = found;
+  // 바로가기 아이콘 등에서 '몇 쪽'을 지정해 연 경우, 마지막으로 보던 위치보다 그 쪽이 우선임
+  const wantPage = (typeof targetPage === 'number' && targetPage >= 0 && targetPage < found.pages.length) ? targetPage : null;
   // 이 기기에서 마지막으로 보던 위치(페이지 수가 줄어든 경우 등 범위를 벗어난 기록은 무시)
   const lastPos = getLastPos(id);
   const validLast = (lastPos && typeof lastPos.p === 'number' && lastPos.p >= 0 && lastPos.p < found.pages.length) ? lastPos : null;
-  curPage = validLast ? validLast.p : 0;
+  curPage = (wantPage !== null) ? wantPage : (validLast ? validLast.p : 0);
   activeLayerIdx = 0; zoom = 1;
   history.length = 0; redoStack.length = 0;
   document.getElementById('title-input').value = current.title;
   updateNoteSyncBtn();
+  applyNotePenDefault(); // 이 노트에 정해둔 기본 펜(색·굵기)이 있으면 그걸로 시작
   // ---- 동기화된 PDF 노트의 원본 파일 자가 복구 ----
   // (A) 다른 기기에서 받아온 노트인데 PDF 원본이 아직 이 기기에 없으면 지금 내려받음
   if(current.type === 'pdf' && !current.pdfBuffer && current.pdfStoragePath && fbStorage && fbUser){
@@ -1779,8 +1806,15 @@ async function openNotebook(id){
   fitZoomToWidth();
   stackEl.style.transform = `scale(${zoom})`;
   centerIfFits();
+  // 쪽을 지정해서 연 경우 그 쪽으로 바로 이동
+  if(wantPage !== null){
+    scrollToPage(curPage);
+    updatePageIndicatorFromScroll();
+    if(curPage > 0) toast(`${curPage+1}쪽으로 이동했어요`);
+    else wrapEl.scrollTop = 0;
+  }
   // 마지막으로 보던 페이지/위치에서 이어서 열기 (기록이 없으면 맨 위)
-  if(validLast && (curPage > 0 || validLast.o > 0)){
+  else if(validLast && (curPage > 0 || validLast.o > 0)){
     scrollToPage(curPage);
     if(validLast.o > 0) wrapEl.scrollTop += validLast.o * zoom;
     updatePageIndicatorFromScroll();
@@ -2734,7 +2768,11 @@ function createShortcutElement(page, pageIdx, sc){
     label.className = 'shortcut-label';
     el.appendChild(label);
     dbGetOne(sc.linkedNotebookId).then(linkedNb=>{
-      if(linkedNb) label.textContent = linkedNb.title || '(제목 없음)';
+      if(linkedNb){
+        const self = current && linkedNb.id === current.id;
+        const pg = (typeof sc.linkedPage === 'number' && sc.linkedPage > 0) ? (' · ' + (sc.linkedPage + 1) + '쪽') : '';
+        label.textContent = (self ? '이 노트' : (linkedNb.title || '(제목 없음)')) + pg;
+      }
       else label.remove(); // 연결된 노트를 찾을 수 없으면(삭제됨 등) 라벨을 띄우지 않음
     });
   }
@@ -2822,9 +2860,19 @@ function createShortcutElement(page, pageIdx, sc){
       scheduleSave();
     } else if(!wasArmed){
       if(sc.linkedNotebookId){
-        // 이미 연결된 노트가 있으면 새로 만들지 않고 그 노트를 바로 염.
+        // 이미 연결된 노트가 있으면 새로 만들지 않고 그 노트(지정한 쪽)로 바로 감.
         // 그 노트 자체에 linkedFrom(원래 자리)이 저장되어 있으므로 별도로 기록할 필요 없음.
-        openNotebook(sc.linkedNotebookId);
+        const toPage = (typeof sc.linkedPage === 'number') ? sc.linkedPage : 0;
+        if(current && sc.linkedNotebookId === current.id){
+          // 같은 노트 안의 다른 쪽이면 다시 열지 않고 그 쪽으로 스크롤만 함
+          if(toPage >= 0 && toPage < current.pages.length){
+            scrollToPage(toPage);
+            updatePageIndicatorFromScroll();
+            toast((toPage + 1) + '쪽으로 이동했어요');
+          } else toast('그 쪽이 없어졌어요');
+        } else {
+          openNotebook(sc.linkedNotebookId, toPage);
+        }
       } else {
         pendingShortcutLink = sc;
         pendingShortcutOrigin = {notebookId: current.id, pageIdx, shortcutId: sc.id};
@@ -2881,47 +2929,82 @@ function placeShortcutAt(e){
 // 방금 만들어진 노트의 id를 그 아이콘에 저장해서 다음부터는 탭하면 바로 이 노트가 열리게 함.
 // current가 아직 원래 보던 노트를 가리키고 있을 때(= openNotebook으로 전환되기 전) 호출해야 함.
 /* ---------- 바로가기 아이콘을 '이미 있는 노트'에 연결 ----------
-   아이콘을 탭했을 때 새 노트를 만드는 대신, 이미 만들어둔 노트를 제목으로 찾아 연결함. */
+   아이콘을 탭했을 때 새 노트를 만드는 대신, 이미 만들어둔 노트의 '특정 쪽'으로 바로 가게 함.
+   같은 노트의 다른 쪽도 연결할 수 있음(노트 안에서 자주 오가는 쪽을 아이콘으로 만들어두는 용도). */
 let linkPickerNotes = [];
+let linkPickedNote = null;
 function renderLinkPickerList(){
   const list = document.getElementById('link-note-list');
   const q = (document.getElementById('link-search').value || '').trim().toLowerCase();
   const rows = q ? linkPickerNotes.filter(nb=> (nb.title||'').toLowerCase().includes(q)) : linkPickerNotes;
   list.innerHTML = '';
   if(!rows.length){
-    list.innerHTML = '<p style="font-size:13px; color:var(--text-dim);">' + (q ? '그 제목의 노트를 못 찾았어요.' : '연결할 다른 노트가 아직 없어요.') + '</p>';
+    list.innerHTML = '<p style="font-size:13px; color:var(--text-dim);">' + (q ? '그 제목의 노트를 못 찾았어요.' : '연결할 노트가 아직 없어요.') + '</p>';
     return;
   }
   rows.forEach(nb=>{
+    const isSelf = current && nb.id === current.id;
     const row = document.createElement('div');
     row.className = 'link-note-row';
     row.style.cssText = 'padding:10px 12px; border-radius:10px; cursor:pointer; font-size:13.5px; border:1px solid var(--border); margin-bottom:6px; display:flex; justify-content:space-between; gap:8px; align-items:center;';
-    row.innerHTML = '<span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">' + escapeHtml(nb.title) + '</span>' +
+    if(isSelf) row.style.borderColor = 'var(--accent)';
+    row.innerHTML = '<span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">' + escapeHtml(nb.title) + (isSelf ? ' <b style="color:var(--accent); font-size:11px;">(이 노트)</b>' : '') + '</span>' +
       '<span style="color:var(--text-dim); font-size:11.5px; white-space:nowrap;">' + nb.pages.length + '쪽</span>';
-    row.addEventListener('click', ()=> linkShortcutToExisting(nb));
+    row.addEventListener('click', ()=> showLinkPageStep(nb));
     list.appendChild(row);
   });
+}
+function showLinkPageStep(nb){
+  linkPickedNote = nb;
+  const isSelf = current && nb.id === current.id;
+  document.getElementById('link-step-note').style.display = 'none';
+  document.getElementById('link-step-page').style.display = 'block';
+  document.getElementById('link-picked').textContent = (nb.title || '제목 없음') + (isSelf ? ' (이 노트)' : '') + ' · 총 ' + nb.pages.length + '쪽';
+  const input = document.getElementById('link-page-input');
+  input.max = nb.pages.length;
+  input.value = isSelf ? (curPage + 1) : 1; // 같은 노트면 지금 보고 있는 쪽을 기본값으로
+  setTimeout(()=>{ try{ input.focus(); input.select(); }catch(e){} }, 60);
+}
+function showLinkNoteStep(){
+  linkPickedNote = null;
+  document.getElementById('link-step-page').style.display = 'none';
+  document.getElementById('link-step-note').style.display = 'block';
 }
 async function openShortcutLinkPicker(){
   if(!pendingShortcutLink){ toast('연결할 바로가기 아이콘이 없어요'); return; }
   const all = await dbGetAll();
-  // 지금 보고 있는 노트 자신에게 연결하는 건 의미가 없으므로 목록에서 뺌
-  linkPickerNotes = all.filter(nb=> !current || nb.id !== current.id).sort((a,b)=> b.updatedAt - a.updatedAt);
+  // 같은 노트의 다른 쪽에도 연결할 수 있으므로 지금 보고 있는 노트도 목록에 넣되 맨 위로 올림
+  const rest = all.filter(nb=> !current || nb.id !== current.id).sort((a,b)=> b.updatedAt - a.updatedAt);
+  const self = current ? all.filter(nb=> nb.id === current.id) : [];
+  linkPickerNotes = self.concat(rest);
   document.getElementById('modal').style.display = 'none';
   document.getElementById('link-search').value = '';
+  showLinkNoteStep();
   renderLinkPickerList();
   document.getElementById('modal-link').style.display = 'flex';
 }
-async function linkShortcutToExisting(nb){
+async function confirmLinkPage(){
+  const nb = linkPickedNote;
+  if(!nb) return;
+  const input = document.getElementById('link-page-input');
+  let page = Math.round(Number(input.value)) - 1;
+  if(!(page >= 0)) page = 0;
+  if(page > nb.pages.length - 1) page = nb.pages.length - 1;
+  await linkShortcutToExisting(nb, page);
+}
+async function linkShortcutToExisting(nb, page){
   const origin = pendingShortcutOrigin; // linkPendingShortcutTo가 비우기 전에 먼저 챙겨둠
+  const sc = pendingShortcutLink;
   document.getElementById('modal-link').style.display = 'none';
-  // 연결되는 노트 쪽에도 '원래 자리'를 적어둬서 그 노트에서 ↩️로 되돌아올 수 있게 함
-  if(origin){
+  if(sc) sc.linkedPage = page; // 몇 쪽으로 갈지 아이콘에 같이 저장
+  const isSelf = current && nb.id === current.id;
+  // 연결되는 노트 쪽에도 '원래 자리'를 적어둬서 그 노트에서 ↩️로 되돌아올 수 있게 함(같은 노트면 의미가 없어 생략)
+  if(origin && !isSelf){
     const target = await dbGetOne(nb.id);
     if(target){ target.linkedFrom = origin; await dbPut(target); }
   }
   await linkPendingShortcutTo(nb.id); // 아이콘에 노트 id 저장 + 지금 노트 저장
-  // 아이콘 모양(연결됨 테두리 + 제목 라벨)을 바로 반영
+  // 아이콘 모양(연결됨 테두리 + 제목·쪽 라벨)을 바로 반영
   if(origin){
     const oldEl = stackEl.querySelector(`.page-shortcut[data-id="${origin.shortcutId}"]`);
     const pg = current.pages[origin.pageIdx];
@@ -2930,12 +3013,18 @@ async function linkShortcutToExisting(nb){
       oldEl.parentElement.replaceChild(createShortcutElement(pg, origin.pageIdx, scObj), oldEl);
     }
   }
-  toast('"' + (nb.title || '제목 없음') + '" 노트에 연결했어요');
+  toast('"' + (nb.title || '제목 없음') + '" ' + (page + 1) + '쪽에 연결했어요');
+  linkPickedNote = null;
 }
 document.getElementById('opt-link').onclick = openShortcutLinkPicker;
 document.getElementById('link-search').addEventListener('input', renderLinkPickerList);
+document.getElementById('link-page-ok').addEventListener('click', confirmLinkPage);
+document.getElementById('link-page-input').addEventListener('keydown', (e)=>{ if(e.key === 'Enter'){ e.preventDefault(); confirmLinkPage(); } });
+document.getElementById('link-page-back').addEventListener('click', showLinkNoteStep);
+selectAllOnFocus(document.getElementById('link-page-input'));
 document.getElementById('modal-link-close').onclick = ()=>{
   document.getElementById('modal-link').style.display = 'none';
+  linkPickedNote = null;
   pendingShortcutLink = null; pendingShortcutOrigin = null;
 };
 async function linkPendingShortcutTo(notebookId){
@@ -3391,6 +3480,90 @@ document.querySelectorAll('#color-group .swatch').forEach(sw=>{
     document.querySelectorAll('#color-group .swatch').forEach(s=>s.classList.toggle('sel', s===sw));
   });
 });
+
+/* ---------- 노트별 기본 펜(색·굵기) ----------
+   노트를 열 때마다 그 노트에 정해둔 색·굵기로 시작함(필기 중에 바꾸는 건 자유, 다시 열면 기본값으로 돌아옴).
+   노트의 성격에 딸린 설정이라 노트 데이터(nb.penDefault)에 저장함 -> 다른 기기에서도 동기화됨. */
+function setPenColor(c){
+  color = c;
+  document.querySelectorAll('#color-group .swatch').forEach(s=> s.classList.toggle('sel', s.dataset.color === c));
+}
+function setPenSize(v){
+  size = Math.max(1, Math.min(20, Math.round(v) || 1));
+  document.getElementById('size-range').value = size;
+  document.getElementById('size-value').value = size;
+}
+function applyNotePenDefault(){
+  const d = current && current.penDefault;
+  if(!d) return; // 정해둔 기본값이 없으면 지금 쓰던 설정을 그대로 유지
+  if(d.color) setPenColor(d.color);
+  if(d.size) setPenSize(d.size);
+}
+function colorNameOf(hex){
+  const sw = document.querySelector(`#color-group .swatch[data-color="${hex}"]`);
+  return sw ? (sw.title || hex) : hex;
+}
+function renderPenDefaultModal(){
+  const d = current && current.penDefault;
+  const now = document.getElementById('pen-default-now');
+  const dot = document.getElementById('pen-default-dot');
+  const save = document.getElementById('pen-default-save');
+  const clear = document.getElementById('pen-default-clear');
+  if(!now) return;
+  if(d){
+    dot.style.background = d.color || '#1c1c1c';
+    now.textContent = '지금 이 노트의 기본 펜: ' + colorNameOf(d.color) + ' · 굵기 ' + d.size;
+    clear.style.display = 'flex';
+  } else {
+    dot.style.background = color;
+    now.textContent = '아직 정해둔 기본값이 없어요 (노트를 열면 직전에 쓰던 설정 그대로예요)';
+    clear.style.display = 'none';
+  }
+  save.textContent = '✔️ 지금 설정(' + colorNameOf(color) + ' · 굵기 ' + size + ')을 이 노트 기본으로';
+}
+function openPenDefaultModal(){
+  if(!current) return;
+  renderPenDefaultModal();
+  document.getElementById('modal-pen-default').style.display = 'flex';
+}
+document.getElementById('pen-default-save').addEventListener('click', async ()=>{
+  if(!current) return;
+  current.penDefault = { color: color, size: size };
+  await persist(true);
+  renderPenDefaultModal();
+  toast('이 노트의 기본 펜을 저장했어요');
+});
+document.getElementById('pen-default-clear').addEventListener('click', async ()=>{
+  if(!current) return;
+  delete current.penDefault;
+  await persist(true);
+  renderPenDefaultModal();
+  toast('기본 펜 설정을 지웠어요');
+});
+document.getElementById('modal-pen-default-close').addEventListener('click', ()=>{
+  document.getElementById('modal-pen-default').style.display = 'none';
+});
+document.getElementById('modal-pen-default').addEventListener('click', (e)=>{
+  if(e.target.id === 'modal-pen-default') document.getElementById('modal-pen-default').style.display = 'none';
+});
+// 펜 버튼을 꾹 누르면 이 노트의 기본 펜 설정 창이 열림
+(function(){
+  const penBtn = document.querySelector('[data-tool="pen"]');
+  let t = null, startPt = null;
+  const cancel = ()=>{ clearTimeout(t); t = null; };
+  penBtn.addEventListener('pointerdown', (e)=>{
+    startPt = {x:e.clientX, y:e.clientY};
+    cancel();
+    t = setTimeout(()=>{ t = null; openPenDefaultModal(); }, 600);
+  });
+  penBtn.addEventListener('pointermove', (e)=>{
+    if(t && startPt && Math.hypot(e.clientX-startPt.x, e.clientY-startPt.y) > 10) cancel();
+  });
+  penBtn.addEventListener('pointerup', cancel);
+  penBtn.addEventListener('pointercancel', cancel);
+  penBtn.addEventListener('pointerleave', cancel);
+  penBtn.addEventListener('contextmenu', (e)=> e.preventDefault());
+})();
 document.querySelectorAll('#highlight-color-group .swatch').forEach(sw=>{
   sw.addEventListener('click', ()=>{
     highlightColor = sw.dataset.hcolor;
