@@ -1972,6 +1972,92 @@ function addImageToPage(pageIdx, file, centerAt){
   };
   reader.readAsDataURL(file);
 }
+/* ---------- 이미지 위에 쓴 필기를 이미지와 함께 움직이기 ----------
+   이미지 영역 안에 점의 60% 이상이 들어있는 획(과 중심이 이미지 안에 있는 마스킹 박스)을
+   '그 이미지에 붙은 필기'로 보고, 이미지를 옮기거나 크기를 바꿀 때 같이 옮기고 같이 확대/축소함.
+   좌표계 주의: 이미지(im.x/y/w/h)는 CSS 페이지 px, 필기 좌표는 캔버스 px(= CSS px x RES_SCALE). */
+const IMG_INK_INSIDE_RATIO = 0.6;
+function collectInkOnImage(pageIdx, im){
+  const page = current && current.pages[pageIdx];
+  if(!page) return [];
+  const x0 = im.x * RES_SCALE, y0 = im.y * RES_SCALE;
+  const x1 = (im.x + im.w) * RES_SCALE, y1 = (im.y + im.h) * RES_SCALE;
+  const out = [];
+  page.layers.forEach((layer, li)=>{
+    (layer.strokes || []).forEach(s=>{
+      if(!s.points || !s.points.length) return;
+      let inside = 0;
+      for(const p of s.points){ if(p.x>=x0 && p.x<=x1 && p.y>=y0 && p.y<=y1) inside++; }
+      if(inside / s.points.length >= IMG_INK_INSIDE_RATIO){
+        out.push({ layerIdx: li, stroke: s, orig: s.points.map(p=>({x:p.x, y:p.y})) });
+      }
+    });
+    (layer.masks || []).forEach(m=>{
+      const cx = m.x + m.w/2, cy = m.y + m.h/2;
+      if(cx>=x0 && cx<=x1 && cy>=y0 && cy<=y1){
+        out.push({ layerIdx: li, mask: m, orig: {x:m.x, y:m.y, w:m.w, h:m.h} });
+      }
+    });
+  });
+  return out;
+}
+// dx,dy: 캔버스 좌표 이동량 / scale: 확대 배율 / originX,originY: 확대 기준점(이미지 좌상단, 캔버스 좌표)
+function applyInkTransform(items, dx, dy, scale, originX, originY){
+  items.forEach(it=>{
+    if(it.stroke){
+      it.stroke.points.forEach((p, i)=>{
+        const o = it.orig[i];
+        if(!o) return;
+        p.x = originX + (o.x - originX) * scale + dx;
+        p.y = originY + (o.y - originY) * scale + dy;
+      });
+    } else if(it.mask){
+      it.mask.x = originX + (it.orig.x - originX) * scale + dx;
+      it.mask.y = originY + (it.orig.y - originY) * scale + dy;
+      it.mask.w = it.orig.w * scale;
+      it.mask.h = it.orig.h * scale;
+    }
+  });
+}
+let inkMoveRaf = null;
+function scheduleInkRedraw(pageIdx, items){
+  if(inkMoveRaf) return; // 드래그 중 매 프레임에 한 번만 다시 그림
+  inkMoveRaf = requestAnimationFrame(()=>{
+    inkMoveRaf = null;
+    const seen = new Set();
+    items.forEach(it=>{ if(!seen.has(it.layerIdx)){ seen.add(it.layerIdx); redrawLayerCanvas(pageIdx, it.layerIdx); } });
+  });
+}
+// 되돌리기 기록은 원래 레이어(획/마스킹)만 담기 때문에, 이미지와 필기가 같이 움직인 경우
+// 이미지 위치까지 함께 저장해두지 않으면 되돌리기했을 때 필기만 제자리로 가고 이미지는 남아 어긋남.
+function currentImageGeom(pageIdx){
+  const page = current && current.pages[pageIdx];
+  return ((page && page.images) ? page.images : []).map(i=>({id:i.id, x:i.x, y:i.y, w:i.w, h:i.h}));
+}
+function applyImageGeom(pageIdx, geom){
+  const page = current && current.pages[pageIdx];
+  if(!page || !page.images || !geom) return;
+  let changed = false;
+  geom.forEach(g=>{
+    const im = page.images.find(i=> i.id === g.id);
+    if(!im) return;
+    if(im.x!==g.x || im.y!==g.y || im.w!==g.w || im.h!==g.h){ im.x=g.x; im.y=g.y; im.w=g.w; im.h=g.h; changed = true; }
+  });
+  if(changed) rebuildPageBlock(pageIdx);
+}
+// 이미지를 움직이기 직전 상태를 되돌리기 기록에 남김(같이 움직인 필기도 한 번에 되돌릴 수 있게)
+function pushInkHistory(pageIdx, items){
+  const geom = currentImageGeom(pageIdx);
+  const seen = new Set();
+  let first = true;
+  items.forEach(it=>{
+    if(seen.has(it.layerIdx)) return;
+    seen.add(it.layerIdx);
+    const snap = snapshotLayer(pageIdx, it.layerIdx);
+    if(first){ snap.imageGeom = geom; first = false; } // 이미지 위치는 첫 기록에만 담음
+    pushHistory(snap);
+  });
+}
 function createImageElement(page, pageIdx, im){
   const el = document.createElement('div');
   el.className = 'page-image';
@@ -2003,6 +2089,7 @@ function createImageElement(page, pageIdx, im){
   // (setPointerCapture 대신 document 리스너 + pointerId 매칭 - 일부 모바일 브라우저에서
   //  터치에 대한 캡처가 불안정한 문제를 피하기 위함)
   let dragging=false, dragStart=null, dragId=null;
+  let inkItems = [], inkOrigin = {x:0, y:0}; // 이 이미지에 붙은 필기와 변형 기준점
   function onDragMove(e){
     if(!dragging || e.pointerId !== dragId) return;
     e.stopPropagation();
@@ -2010,6 +2097,11 @@ function createImageElement(page, pageIdx, im){
     im.x = Math.max(0, Math.min(page.width - im.w, dragStart.sx + dx));
     im.y = Math.max(0, Math.min(page.height - im.h, dragStart.sy + dy));
     applyGeom();
+    if(inkItems.length){
+      // 화면 밖으로 못 나가게 잘린 실제 위치 기준으로 필기도 같은 만큼 이동
+      applyInkTransform(inkItems, im.x*RES_SCALE - inkOrigin.x, im.y*RES_SCALE - inkOrigin.y, 1, inkOrigin.x, inkOrigin.y);
+      scheduleInkRedraw(pageIdx, inkItems);
+    }
   }
   function dragEnd(e){
     if(!dragging || (e && e.pointerId !== dragId)) return;
@@ -2025,6 +2117,9 @@ function createImageElement(page, pageIdx, im){
     e.stopPropagation();
     dragging = true; dragId = e.pointerId;
     dragStart = {x:e.clientX, y:e.clientY, sx:im.x, sy:im.y};
+    inkItems = collectInkOnImage(pageIdx, im);
+    inkOrigin = {x: im.x*RES_SCALE, y: im.y*RES_SCALE};
+    if(inkItems.length) pushInkHistory(pageIdx, inkItems);
     document.addEventListener('pointermove', onDragMove);
     document.addEventListener('pointerup', dragEnd);
     document.addEventListener('pointercancel', dragEnd);
@@ -2041,6 +2136,11 @@ function createImageElement(page, pageIdx, im){
     w = Math.min(w, page.width - im.x);
     im.w = w; im.h = w / ratio;
     applyGeom();
+    if(inkItems.length){
+      // 이미지 좌상단을 기준으로 필기도 같은 배율로 확대/축소
+      applyInkTransform(inkItems, 0, 0, im.w / resizeStart.sw, inkOrigin.x, inkOrigin.y);
+      scheduleInkRedraw(pageIdx, inkItems);
+    }
   }
   function resizeEnd(e){
     if(!resizing || (e && e.pointerId !== resizeId)) return;
@@ -2055,6 +2155,9 @@ function createImageElement(page, pageIdx, im){
     e.stopPropagation();
     resizing = true; resizeId = e.pointerId;
     resizeStart = {x:e.clientX, y:e.clientY, sw:im.w, sh:im.h};
+    inkItems = collectInkOnImage(pageIdx, im);
+    inkOrigin = {x: im.x*RES_SCALE, y: im.y*RES_SCALE};
+    if(inkItems.length) pushInkHistory(pageIdx, inkItems);
     document.addEventListener('pointermove', onResizeMove);
     document.addEventListener('pointerup', resizeEnd);
     document.addEventListener('pointercancel', resizeEnd);
@@ -3126,8 +3229,11 @@ function doUndo(showToast){
   const page = current && current.pages[snap.pageIdx];
   const layer = page && page.layers[snap.layerIdx];
   if(!layer) return false;
-  redoStack.push(snapshotLayer(snap.pageIdx, snap.layerIdx));
+  const redoSnap = snapshotLayer(snap.pageIdx, snap.layerIdx);
+  if(snap.imageGeom) redoSnap.imageGeom = currentImageGeom(snap.pageIdx);
+  redoStack.push(redoSnap);
   layer.strokes = snap.strokes; layer.masks = snap.masks;
+  if(snap.imageGeom) applyImageGeom(snap.pageIdx, snap.imageGeom); // 이미지도 같이 되돌림
   redrawLayerCanvas(snap.pageIdx, snap.layerIdx);
   scheduleSave();
   if(showToast) toast('되돌렸어요');
@@ -3138,8 +3244,11 @@ document.getElementById('btn-redo').onclick = ()=>{
   const snap = redoStack.pop();
   if(!snap) return;
   const layer = current.pages[snap.pageIdx].layers[snap.layerIdx];
-  history.push(snapshotLayer(snap.pageIdx, snap.layerIdx));
+  const undoSnap = snapshotLayer(snap.pageIdx, snap.layerIdx);
+  if(snap.imageGeom) undoSnap.imageGeom = currentImageGeom(snap.pageIdx);
+  history.push(undoSnap);
   layer.strokes = snap.strokes; layer.masks = snap.masks;
+  if(snap.imageGeom) applyImageGeom(snap.pageIdx, snap.imageGeom); // 이미지도 같이 다시 실행
   redrawLayerCanvas(snap.pageIdx, snap.layerIdx);
   scheduleSave();
 };
