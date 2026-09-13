@@ -449,6 +449,24 @@
     font-size:11px; line-height:1.3; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
     pointer-events:none; z-index:57;
   }
+  /* ---------- 올가미 선택 상자 ---------- */
+  .sel-box{
+    position:absolute; z-index:57; border:2px dashed var(--accent); border-radius:6px;
+    background:rgba(217,98,43,0.08); cursor:move; touch-action:none;
+  }
+  .sel-bar{
+    position:absolute; left:50%; bottom:100%; transform:translateX(-50%); margin-bottom:7px;
+    display:flex; align-items:center; gap:5px; padding:6px 9px; border-radius:999px;
+    background:rgba(30,30,34,0.93); box-shadow:var(--shadow); white-space:nowrap; cursor:default;
+  }
+  .sel-sw{
+    width:17px; height:17px; border-radius:50%; border:1px solid rgba(255,255,255,0.55);
+    cursor:pointer; flex:0 0 auto; display:block;
+  }
+  .sel-x{
+    background:transparent; border:none; color:#fff; font-size:14px; cursor:pointer;
+    padding:0 2px 0 6px; margin-left:2px; border-left:1px solid rgba(255,255,255,0.3);
+  }
   .page-shortcut.flash{ animation: shortcutFlash 1s ease-in-out 2; }
   @keyframes shortcutFlash{
     0%, 100% { box-shadow:0 3px 8px rgba(0,0,0,0.22); transform:scale(1); }
@@ -749,10 +767,12 @@
         </div>
         <button class="icon-btn" data-tool="highlight" title="형광펜">🖍️</button>
         <button class="icon-btn" data-tool="mask" title="도형(가리기·마스킹)">▭</button>
+        <button class="icon-btn" data-tool="lasso" title="올가미 선택 — 둘러 그으면 그 안의 필기·도형·이미지가 통째로 선택돼요">◌</button>
       </div>
       <button class="icon-btn" id="btn-paste" title="붙여넣기 — 복사한 글자·이미지 기록에서 고르기">📋</button>
       <div class="divider"></div>
-      <button class="icon-btn" id="btn-straight-line" title="수평으로 긋기(토글)">📏</button>
+      <button class="icon-btn" id="btn-straight-line" title="수평(가로)으로 긋기(토글)">📏</button>
+      <button class="icon-btn" id="btn-straight-line-v" title="수직(세로)으로 긋기(토글)">📐</button>
       <div class="divider"></div>
       <div class="tool-group" id="color-group">
         <div class="swatch sel" style="background:#1c1c1c" data-color="#1c1c1c" title="검정"></div>
@@ -1240,7 +1260,7 @@ let color = '#1c1c1c';
 let size = 3;
 let highlightColor = '#ff3b30';
 let highlightOpacity = 0.35;
-let straightLineMode = false;
+let straightAxis = null; // null | 'h'(가로 일직선) | 'v'(세로 일직선)
 let zoom = 1;
 let pdfDoc = null;       // pdf.js document proxy for current notebook
 
@@ -2021,6 +2041,7 @@ function rebuildPageBlock(idx){
 }
 function renderAllPages(){
   if(lazyObserver){ lazyObserver.disconnect(); lazyObserver = null; }
+  clearSelection(); // 페이지를 다시 그리면 선택 상자는 사라지므로 상태도 같이 정리
   stackEl.innerHTML = '';
   const maxW = Math.max(...current.pages.map(p=>p.width));
   stackEl.style.width = maxW+'px';
@@ -3275,6 +3296,10 @@ function onPointerDown(e){
     eraseAt(x,y);
   } else if(activeAction==='mask'){
     maskStart = {x,y};
+  } else if(activeAction==='lasso'){
+    history.pop(); // 고르기만 하는 동작이라 되돌리기 기록은 남기지 않음
+    clearSelection();
+    lassoPath = [{x,y}];
   }
 }
 let panStart = null;
@@ -3373,8 +3398,10 @@ function onPointerMove(e){
   }
   if(!drawing) return;
   let {x,y} = coordFromEvent(e, strokeCanvas);
-  if(straightLineMode && currentStroke && currentStroke.points.length){
-    y = currentStroke.points[0].y; // 수평 고정 모드: 시작점의 y로 고정해서 완전한 가로 직선이 되도록
+  if(straightAxis && currentStroke && currentStroke.points.length){
+    // 일직선 고정 모드: 시작점의 좌표로 한 축을 묶어서 완전한 가로/세로 직선이 되도록
+    if(straightAxis === 'h') y = currentStroke.points[0].y;
+    else x = currentStroke.points[0].x;
   }
   if(activeAction==='pen' && currentStroke){
     currentStroke.points.push({x,y,p:Math.round((e.pressure||0.5)*100)/100});
@@ -3429,6 +3456,10 @@ function onPointerMove(e){
     ctx.save(); ctx.globalAlpha=0.5; ctx.fillStyle=color;
     ctx.fillRect(Math.min(maskStart.x,x), Math.min(maskStart.y,y), Math.abs(x-maskStart.x), Math.abs(y-maskStart.y));
     ctx.restore();
+  } else if(activeAction==='lasso' && lassoPath){
+    lassoPath.push({x,y});
+    redrawLayerCanvas(activePageIdx, activeLayerIdx);
+    drawLassoPreview(strokeCtx, lassoPath);
   }
 }
 function onPointerUp(e){
@@ -3497,9 +3528,196 @@ function onPointerUp(e){
     }
     maskStart = null;
     redrawLayerCanvas(activePageIdx, activeLayerIdx);
+  } else if(activeAction==='lasso' && lassoPath){
+    const poly = lassoPath;
+    lassoPath = null;
+    redrawLayerCanvas(activePageIdx, activeLayerIdx);
+    if(poly.length >= 3) buildSelectionFromLasso(activePageIdx, poly);
   }
   activeAction = null;
   scheduleSave();
+}
+/* ---------- 올가미 선택 (◌) ----------
+   펜으로 원하는 영역을 둘러 그으면(끝점은 시작점과 자동으로 직선 연결) 그 안에 들어오거나 걸친
+   필기·도형(마스킹)·이미지가 통째로 선택됨. 선택 상자를 끌어 옮길 수 있고, 필기가 섞여 있으면
+   색도 한 번에 바꿀 수 있음. 좌표계 주의: 필기·마스킹은 캔버스 px, 이미지는 CSS 페이지 px. */
+let lassoPath = null;   // 지금 그리고 있는 올가미 경로(캔버스 좌표)
+let selection = null;   // {pageIdx, strokes:[{layerIdx,stroke}], masks:[{layerIdx,mask}], images:[im], box:{x,y,w,h}(CSS px)}
+let selBoxEl = null;
+function drawLassoPreview(ctx, pts){
+  if(!ctx || pts.length < 2) return;
+  ctx.save();
+  ctx.setLineDash([8*RES_SCALE, 6*RES_SCALE]);
+  ctx.lineWidth = 1.6 * RES_SCALE;
+  ctx.strokeStyle = 'rgba(217,98,43,0.95)';
+  ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(pts[0].x, pts[0].y);
+  for(let i=1;i<pts.length;i++) ctx.lineTo(pts[i].x, pts[i].y);
+  ctx.lineTo(pts[0].x, pts[0].y); // 손을 뗀 곳에서 시작점까지 자동으로 이어줌
+  ctx.stroke();
+  ctx.restore();
+}
+function pointInPoly(px, py, poly){
+  let inside = false;
+  for(let i=0, j=poly.length-1; i<poly.length; j=i++){
+    const xi = poly[i].x, yi = poly[i].y, xj = poly[j].x, yj = poly[j].y;
+    if(((yi > py) !== (yj > py)) && (px < (xj - xi) * (py - yi) / ((yj - yi) || 1e-9) + xi)) inside = !inside;
+  }
+  return inside;
+}
+// 사각형(캔버스 좌표)이 올가미에 걸쳤는지: 네 꼭짓점·중심 중 하나라도 안에 있거나, 올가미 선이 사각형을 지나가면 선택
+function rectHitsPoly(rx, ry, rw, rh, poly){
+  const pts = [[rx,ry],[rx+rw,ry],[rx,ry+rh],[rx+rw,ry+rh],[rx+rw/2,ry+rh/2]];
+  for(const [x,y] of pts){ if(pointInPoly(x, y, poly)) return true; }
+  for(const p of poly){ if(p.x>=rx && p.x<=rx+rw && p.y>=ry && p.y<=ry+rh) return true; }
+  return false;
+}
+function clearSelection(){
+  selection = null;
+  if(selBoxEl){ selBoxEl.remove(); selBoxEl = null; }
+}
+function buildSelectionFromLasso(pageIdx, poly){
+  const page = current && current.pages[pageIdx];
+  if(!page) return;
+  const strokes = [], masks = [], images = [];
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity; // 캔버스 좌표 기준 경계
+  page.layers.forEach((layer, li)=>{
+    if(layer.visible === false) return;
+    (layer.strokes || []).forEach(s=>{
+      if(!s.points || !s.points.length) return;
+      if(s.points.some(p=> pointInPoly(p.x, p.y, poly))){
+        strokes.push({layerIdx: li, stroke: s});
+        s.points.forEach(p=>{ x0=Math.min(x0,p.x); y0=Math.min(y0,p.y); x1=Math.max(x1,p.x); y1=Math.max(y1,p.y); });
+      }
+    });
+    (layer.masks || []).forEach(m=>{
+      if(rectHitsPoly(m.x, m.y, m.w, m.h, poly)){
+        masks.push({layerIdx: li, mask: m});
+        x0=Math.min(x0,m.x); y0=Math.min(y0,m.y); x1=Math.max(x1,m.x+m.w); y1=Math.max(y1,m.y+m.h);
+      }
+    });
+  });
+  (page.images || []).forEach(im=>{
+    if(rectHitsPoly(im.x*RES_SCALE, im.y*RES_SCALE, im.w*RES_SCALE, im.h*RES_SCALE, poly)){
+      images.push(im);
+      x0=Math.min(x0, im.x*RES_SCALE); y0=Math.min(y0, im.y*RES_SCALE);
+      x1=Math.max(x1,(im.x+im.w)*RES_SCALE); y1=Math.max(y1,(im.y+im.h)*RES_SCALE);
+    }
+  });
+  if(!strokes.length && !masks.length && !images.length){ toast('올가미 안에 선택할 게 없어요'); return; }
+  const PAD = 6 * RES_SCALE;
+  selection = {
+    pageIdx, strokes, masks, images,
+    box: { x:(x0-PAD)/RES_SCALE, y:(y0-PAD)/RES_SCALE, w:(x1-x0+PAD*2)/RES_SCALE, h:(y1-y0+PAD*2)/RES_SCALE }
+  };
+  showSelectionBox();
+  toast(selection.strokes.length + '개 필기 · ' + selection.masks.length + '개 도형 · ' + selection.images.length + '개 이미지 선택됨');
+}
+function selectionSnapshot(){
+  if(!selection) return;
+  const layerIdxs = [];
+  selection.strokes.forEach(s=>{ if(layerIdxs.indexOf(s.layerIdx) < 0) layerIdxs.push(s.layerIdx); });
+  selection.masks.forEach(m=>{ if(layerIdxs.indexOf(m.layerIdx) < 0) layerIdxs.push(m.layerIdx); });
+  if(!layerIdxs.length) layerIdxs.push(activeLayerIdx);
+  let first = true;
+  layerIdxs.forEach(li=>{
+    const snap = snapshotLayer(selection.pageIdx, li);
+    if(first){ snap.imageGeom = currentImageGeom(selection.pageIdx); first = false; }
+    pushHistory(snap);
+  });
+}
+function redrawSelectionLayers(){
+  if(!selection) return;
+  const done = new Set();
+  selection.strokes.forEach(s=>{ if(!done.has(s.layerIdx)){ done.add(s.layerIdx); redrawLayerCanvas(selection.pageIdx, s.layerIdx); } });
+  selection.masks.forEach(m=>{ if(!done.has(m.layerIdx)){ done.add(m.layerIdx); redrawLayerCanvas(selection.pageIdx, m.layerIdx); } });
+}
+function moveSelection(dxCss, dyCss){
+  if(!selection) return;
+  const page = current.pages[selection.pageIdx];
+  const dx = dxCss * RES_SCALE, dy = dyCss * RES_SCALE;
+  selection.strokes.forEach(({stroke})=> stroke.points.forEach(p=>{ p.x += dx; p.y += dy; }));
+  selection.masks.forEach(({mask})=>{ mask.x += dx; mask.y += dy; });
+  selection.images.forEach(im=>{
+    im.x = Math.max(0, Math.min(page.width - im.w, im.x + dxCss));
+    im.y = Math.max(0, Math.min(page.height - im.h, im.y + dyCss));
+    const el = stackEl.querySelector(`.page-block[data-page-idx="${selection.pageIdx}"] .page-image[data-id="${im.id}"]`);
+    if(el){ el.style.left = im.x + 'px'; el.style.top = im.y + 'px'; }
+  });
+  selection.box.x += dxCss; selection.box.y += dyCss;
+  redrawSelectionLayers();
+  if(selBoxEl){ selBoxEl.style.left = selection.box.x + 'px'; selBoxEl.style.top = selection.box.y + 'px'; }
+}
+function recolorSelection(c){
+  if(!selection || !selection.strokes.length) return;
+  selectionSnapshot();
+  selection.strokes.forEach(({stroke})=>{ stroke.color = c; });
+  redrawSelectionLayers();
+  scheduleSave();
+  toast('선택한 필기 색을 바꿨어요');
+}
+function showSelectionBox(){
+  if(selBoxEl){ selBoxEl.remove(); selBoxEl = null; }
+  if(!selection) return;
+  const block = stackEl.querySelector(`.page-block[data-page-idx="${selection.pageIdx}"]`);
+  if(!block) return;
+  const box = document.createElement('div');
+  box.className = 'sel-box';
+  box.style.left = selection.box.x + 'px';
+  box.style.top = selection.box.y + 'px';
+  box.style.width = selection.box.w + 'px';
+  box.style.height = selection.box.h + 'px';
+  const bar = document.createElement('div');
+  bar.className = 'sel-bar';
+  if(selection.strokes.length){
+    document.querySelectorAll('#color-group .swatch').forEach(sw=>{
+      const dot = document.createElement('span');
+      dot.className = 'sel-sw';
+      dot.style.background = sw.dataset.color;
+      dot.title = (sw.title || '') + '으로 바꾸기';
+      dot.addEventListener('pointerdown', (e)=> e.stopPropagation());
+      dot.addEventListener('click', (e)=>{ e.stopPropagation(); recolorSelection(sw.dataset.color); });
+      bar.appendChild(dot);
+    });
+  }
+  const close = document.createElement('button');
+  close.type = 'button'; close.className = 'sel-x'; close.textContent = '✕'; close.title = '선택 해제';
+  close.addEventListener('pointerdown', (e)=> e.stopPropagation());
+  close.addEventListener('click', (e)=>{ e.stopPropagation(); clearSelection(); });
+  bar.appendChild(close);
+  box.appendChild(bar);
+  // 상자를 끌어서 통째로 이동
+  let dragId = null, last = null, moved = false;
+  const onMove = (e)=>{
+    if(e.pointerId !== dragId) return;
+    e.preventDefault(); e.stopPropagation();
+    const dx = (e.clientX - last.x) / zoom, dy = (e.clientY - last.y) / zoom;
+    last = {x:e.clientX, y:e.clientY};
+    if(!moved){ moved = true; selectionSnapshot(); }
+    moveSelection(dx, dy);
+  };
+  const onUp = (e)=>{
+    if(e.pointerId !== dragId) return;
+    dragId = null;
+    document.removeEventListener('pointermove', onMove);
+    document.removeEventListener('pointerup', onUp);
+    document.removeEventListener('pointercancel', onUp);
+    if(moved) scheduleSave();
+    moved = false;
+  };
+  box.addEventListener('pointerdown', (e)=>{
+    if(e.target.closest('.sel-bar')) return;
+    e.stopPropagation();
+    dragId = e.pointerId;
+    last = {x:e.clientX, y:e.clientY};
+    moved = false;
+    document.addEventListener('pointermove', onMove, {passive:false});
+    document.addEventListener('pointerup', onUp);
+    document.addEventListener('pointercancel', onUp);
+  });
+  block.appendChild(box);
+  selBoxEl = box;
 }
 function eraseAt(x,y){
   const layer = current.pages[activePageIdx].layers[activeLayerIdx];
@@ -3519,6 +3737,7 @@ function updateToolUI(){
 }
 document.querySelectorAll('[data-tool]:not([data-tool="eraser"])').forEach(btn=>{
   btn.addEventListener('click', ()=>{
+    if(btn.dataset.tool !== 'lasso') clearSelection(); // 다른 도구로 바꾸면 선택은 풀림
     tool = btn.dataset.tool;
     document.querySelectorAll('[data-tool]').forEach(b=>b.classList.toggle('active', b===btn));
     stackEl.style.cursor = tool==='pan' ? 'grab' : 'crosshair';
@@ -3740,10 +3959,13 @@ document.getElementById('highlight-opacity-value').addEventListener('input', ()=
 document.getElementById('highlight-opacity-value').addEventListener('blur', ()=> applyHighlightOpacityFromInput(true));
 document.getElementById('highlight-opacity-value').addEventListener('keydown', (e)=>{ if(e.key==='Enter'){ applyHighlightOpacityFromInput(true); e.target.blur(); } });
 document.getElementById('highlight-opacity-value').value = Math.round(highlightOpacity*100);
-document.getElementById('btn-straight-line').addEventListener('click', ()=>{
-  straightLineMode = !straightLineMode;
-  document.getElementById('btn-straight-line').classList.toggle('active', straightLineMode);
-});
+function setStraightAxis(axis){
+  straightAxis = (straightAxis === axis) ? null : axis; // 같은 버튼을 다시 누르면 해제
+  document.getElementById('btn-straight-line').classList.toggle('active', straightAxis === 'h');
+  document.getElementById('btn-straight-line-v').classList.toggle('active', straightAxis === 'v');
+}
+document.getElementById('btn-straight-line').addEventListener('click', ()=> setStraightAxis('h'));
+document.getElementById('btn-straight-line-v').addEventListener('click', ()=> setStraightAxis('v'));
 document.getElementById('size-range').oninput = (e)=>{
   size = parseInt(e.target.value,10);
   document.getElementById('size-value').value = size;
