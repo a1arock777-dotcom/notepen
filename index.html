@@ -684,6 +684,7 @@
     <div class="modal">
       <h3>목차</h3>
       <p>중요한 페이지에 이름을 붙여 등록해두면, 여기서 눌러 바로 그 페이지로 갈 수 있어요.</p>
+      <input type="text" id="toc-search" placeholder="🔎 목차에서 이름으로 찾기" autocomplete="off" style="display:none;">
       <div id="toc-empty" style="display:none;">아직 등록한 페이지가 없어요.<br>아래에 이름을 적고 추가하면 목차에 들어갑니다.</div>
       <div id="toc-list"></div>
       <div id="toc-add-row">
@@ -4333,10 +4334,21 @@ function getToc(){
 function renderToc(){
   const listEl = document.getElementById('toc-list');
   const emptyEl = document.getElementById('toc-empty');
+  const searchEl = document.getElementById('toc-search');
   if(!listEl) return;
-  const toc = getToc().slice().sort((a,b)=> a.page - b.page);
+  const all = getToc().slice().sort((a,b)=> a.page - b.page);
+  const q = (searchEl && searchEl.value || '').trim().toLowerCase();
+  // 등록한 게 있을 때만 검색칸을 보여줌(하나도 없을 때는 굳이 자리를 차지하지 않게)
+  if(searchEl) searchEl.style.display = (all.length || q) ? 'block' : 'none';
+  const toc = q ? all.filter(t=> String(t.name || '').toLowerCase().includes(q)) : all;
   listEl.innerHTML = '';
-  emptyEl.style.display = toc.length ? 'none' : 'block';
+  if(toc.length) emptyEl.style.display = 'none';
+  else {
+    emptyEl.style.display = 'block';
+    emptyEl.innerHTML = q
+      ? '"' + escapeHtml(q) + '" 에 해당하는 목차가 없어요.'
+      : '아직 등록한 페이지가 없어요.<br>아래에 이름을 적고 추가하면 목차에 들어갑니다.';
+  }
   toc.forEach((item)=>{
     const row = document.createElement('div');
     row.className = 'toc-row';
@@ -4379,6 +4391,8 @@ function openTocPanel(){
   if(!current) return;
   const input = document.getElementById('toc-name-input');
   input.value = '';
+  const searchEl = document.getElementById('toc-search');
+  if(searchEl) searchEl.value = ''; // 열 때마다 검색어는 비우고 전체 목록부터 보여줌
   renderToc();
   document.getElementById('modal-toc').style.display = 'flex';
 }
@@ -4405,6 +4419,7 @@ document.querySelectorAll('.page-nav-btn[data-tip]').forEach(btn=>{
   btn.addEventListener('pointerleave', hide);
   btn.addEventListener('pointerdown', hide); // 눌러서 이동한 뒤 이름표가 남아있지 않게
 });
+document.getElementById('toc-search').addEventListener('input', renderToc);
 document.getElementById('btn-toc').addEventListener('click', openTocPanel);
 document.getElementById('toc-add-btn').addEventListener('click', addCurrentPageToToc);
 document.getElementById('toc-name-input').addEventListener('keydown', (e)=>{
