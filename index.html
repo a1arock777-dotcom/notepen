@@ -4001,9 +4001,21 @@ function setPenSize(v){
   document.getElementById('size-range').value = size;
   document.getElementById('size-value').value = size;
 }
+// 도구(펜/형광펜/지우개/도형/올가미/이동) 바꾸기 — 버튼 상태·커서·툴바 표시까지 함께 갱신
+function setActiveTool(name){
+  const btn = document.querySelector(`[data-tool="${name}"]`);
+  if(!btn) return;
+  tool = name;
+  document.querySelectorAll('[data-tool]').forEach(b=> b.classList.toggle('active', b === btn));
+  stackEl.style.cursor = (tool === 'pan') ? 'grab' : 'crosshair';
+  updateToolUI();
+}
 function applyNotePenDefault(){
   const d = current && current.penDefault;
   if(!d) return; // 정해둔 기본값이 없으면 지금 쓰던 설정을 그대로 유지
+  // 형광펜·지우개 등 어떤 도구를 쓰다 왔더라도 이 노트에서는 정해둔 펜으로 시작하도록 도구까지 되돌림
+  clearSelection();
+  setActiveTool('pen');
   if(d.color) setPenColor(d.color);
   if(d.size) setPenSize(d.size);
 }
