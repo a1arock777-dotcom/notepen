@@ -203,6 +203,24 @@
     flex:0 0 auto; width:28px; height:28px; border-radius:50%; border:none;
     background:transparent; color:var(--text-dim); font-size:13px; cursor:pointer;
   }
+  /* 노트 목차(북마크) */
+  #toc-list{ max-height:46vh; overflow-y:auto; margin:2px 0 12px; }
+  .toc-row{ display:flex; align-items:center; gap:6px; margin-bottom:7px; }
+  .toc-go{
+    flex:1 1 auto; display:flex; align-items:center; gap:10px; padding:11px 12px; border-radius:12px;
+    border:1px solid var(--border); background:var(--surface-2); color:var(--text);
+    font-size:14px; font-weight:600; cursor:pointer; text-align:left; min-width:0;
+  }
+  .toc-name{ flex:1 1 auto; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .toc-page{ flex:0 0 auto; font-size:11.5px; font-weight:700; color:var(--accent); }
+  .toc-go.toc-here{ border-color:var(--accent); }
+  .toc-del{
+    flex:0 0 auto; width:28px; height:28px; border-radius:50%; border:none;
+    background:transparent; color:var(--text-dim); font-size:13px; cursor:pointer;
+  }
+  #toc-empty{ font-size:12.5px; color:var(--text-dim); line-height:1.7; margin:6px 0 14px; }
+  #toc-add-row{ display:flex; gap:6px; align-items:center; margin-bottom:2px; }
+  #toc-name-input{ flex:1 1 auto; margin-bottom:0 !important; }
   .lined-toggle{
     display:flex; align-items:center; gap:8px; font-size:13.5px; color:var(--text); cursor:pointer;
   }
@@ -534,6 +552,21 @@
     </div>
   </div>
 
+  <!-- TABLE OF CONTENTS -->
+  <div class="modal-backdrop" id="modal-toc" style="display:none;">
+    <div class="modal">
+      <h3>목차</h3>
+      <p>중요한 페이지에 이름을 붙여 등록해두면, 여기서 눌러 바로 그 페이지로 갈 수 있어요.</p>
+      <div id="toc-empty" style="display:none;">아직 등록한 페이지가 없어요.<br>아래에 이름을 적고 추가하면 목차에 들어갑니다.</div>
+      <div id="toc-list"></div>
+      <div id="toc-add-row">
+        <input type="text" id="toc-name-input" placeholder="이 페이지 이름 (예: 3장 요약)" maxlength="40">
+      </div>
+      <button class="opt-btn" id="toc-add-btn" style="margin-top:9px;">➕ 지금 보는 페이지를 목차에 추가</button>
+      <button class="modal-close" id="modal-toc-close">닫기</button>
+    </div>
+  </div>
+
   <!-- SYNC MODAL -->
   <div class="modal-backdrop" id="modal-sync" style="display:none;">
     <div class="modal">
@@ -688,6 +721,7 @@
       <div class="page-stack" id="page-stack"></div>
     </div>
     <div id="page-nav">
+      <button type="button" class="page-nav-btn" id="btn-toc" title="목차 — 중요한 페이지를 이름 붙여 등록해두고 바로 이동">📑</button>
       <button type="button" class="page-nav-btn" id="btn-scratch-back" title="원래 보던 노트로 돌아가기" style="display:none;">↩️</button>
       <button type="button" class="page-nav-btn" id="btn-scratch" title="이면지(연습장) 노트로 가기 — 꾹 누르면 다시 고르기">🗒️</button>
       <button type="button" class="page-nav-btn" id="page-nav-up" title="이전 페이지">▲</button>
@@ -3404,6 +3438,91 @@ document.getElementById('btn-scratch-back').addEventListener('click', async ()=>
   await persist(true);
   await openNotebook(target);
   updateScratchButtons();
+});
+
+/* ---------- 노트 목차(중요 페이지 북마크) ----------
+   목차는 노트의 내용이므로 노트 데이터(nb.toc) 안에 저장함 -> 동기화되면 다른 기기에서도 그대로 보임.
+   {name, page} 배열이고 page는 0부터 세는 페이지 번호. 이 앱은 페이지를 뒤에만 추가하고
+   중간에서 지우지 않기 때문에 한 번 등록한 번호가 어긋날 일은 없음. */
+function getToc(){
+  if(!current) return [];
+  if(!Array.isArray(current.toc)) current.toc = [];
+  return current.toc;
+}
+function renderToc(){
+  const listEl = document.getElementById('toc-list');
+  const emptyEl = document.getElementById('toc-empty');
+  if(!listEl) return;
+  const toc = getToc().slice().sort((a,b)=> a.page - b.page);
+  listEl.innerHTML = '';
+  emptyEl.style.display = toc.length ? 'none' : 'block';
+  toc.forEach((item)=>{
+    const row = document.createElement('div');
+    row.className = 'toc-row';
+    const go = document.createElement('button');
+    go.type = 'button';
+    go.className = 'toc-go' + (item.page === curPage ? ' toc-here' : '');
+    const name = document.createElement('span');
+    name.className = 'toc-name'; name.textContent = item.name;
+    const pg = document.createElement('span');
+    pg.className = 'toc-page'; pg.textContent = (item.page + 1) + '페이지';
+    go.appendChild(name); go.appendChild(pg);
+    go.addEventListener('click', ()=>{
+      document.getElementById('modal-toc').style.display = 'none';
+      if(item.page >= 0 && item.page < current.pages.length){
+        scrollToPage(item.page);
+        updatePageIndicatorFromScroll();
+        toast(item.name + ' — ' + (item.page + 1) + '페이지');
+      } else {
+        toast('그 페이지가 없어졌어요');
+      }
+    });
+    const del = document.createElement('button');
+    del.type = 'button'; del.className = 'toc-del'; del.textContent = '✕'; del.title = '목차에서 빼기';
+    del.addEventListener('click', async (e)=>{
+      e.stopPropagation();
+      const arr = getToc();
+      const i = arr.indexOf(item);
+      if(i >= 0) arr.splice(i, 1);
+      await persist(true);
+      renderToc();
+      toast('목차에서 뺐어요');
+    });
+    row.appendChild(go); row.appendChild(del);
+    listEl.appendChild(row);
+  });
+  const addBtn = document.getElementById('toc-add-btn');
+  if(addBtn) addBtn.textContent = '➕ 지금 보는 ' + (curPage + 1) + '페이지를 목차에 추가';
+}
+function openTocPanel(){
+  if(!current) return;
+  const input = document.getElementById('toc-name-input');
+  input.value = '';
+  renderToc();
+  document.getElementById('modal-toc').style.display = 'flex';
+}
+async function addCurrentPageToToc(){
+  if(!current) return;
+  const input = document.getElementById('toc-name-input');
+  const name = (input.value || '').trim() || (curPage + 1) + '페이지';
+  const arr = getToc();
+  if(arr.some(t=> t.page === curPage && t.name === name)){ toast('같은 이름으로 이미 등록돼 있어요'); return; }
+  arr.push({ name: name, page: curPage });
+  await persist(true);
+  input.value = '';
+  renderToc();
+  toast('목차에 추가했어요 — ' + name + ' (' + (curPage + 1) + '페이지)');
+}
+document.getElementById('btn-toc').addEventListener('click', openTocPanel);
+document.getElementById('toc-add-btn').addEventListener('click', addCurrentPageToToc);
+document.getElementById('toc-name-input').addEventListener('keydown', (e)=>{
+  if(e.key === 'Enter'){ e.preventDefault(); addCurrentPageToToc(); }
+});
+document.getElementById('modal-toc-close').addEventListener('click', ()=>{
+  document.getElementById('modal-toc').style.display = 'none';
+});
+document.getElementById('modal-toc').addEventListener('click', (e)=>{
+  if(e.target.id === 'modal-toc') document.getElementById('modal-toc').style.display = 'none';
 });
 
 document.getElementById('page-nav-up').addEventListener('click', ()=>{
