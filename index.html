@@ -467,6 +467,20 @@
     flex:0 0 auto; background:rgba(0,0,0,0.25); border:none; color:#fff;
     border-radius:999px; padding:5px 11px; font-size:12px; font-weight:700; cursor:pointer;
   }
+  /* 다른 기기의 변경이 도착했는데 지금 필기 중이라 자동으로 바꾸면 안 될 때 띄우는 안내 */
+  #sync-banner{
+    position:fixed; top:8px; left:50%; transform:translateX(-50%); z-index:96;
+    display:flex; align-items:center; gap:8px; max-width:94vw;
+    background:rgba(43,107,217,0.96); color:#fff; border-radius:999px;
+    padding:9px 10px 9px 16px; box-shadow:var(--shadow); font-size:12.5px; font-weight:600;
+  }
+  #sync-banner span{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  #sync-banner button{
+    flex:0 0 auto; border:none; color:#fff; border-radius:999px;
+    padding:5px 11px; font-size:12px; font-weight:700; cursor:pointer;
+  }
+  #sync-banner-load{ background:rgba(255,255,255,0.28); }
+  #sync-banner-later{ background:rgba(0,0,0,0.25); }
   .page-shortcut.paired{
     border-color:#2b6bd9; box-shadow:0 0 0 2px #2b6bd9, 0 3px 8px rgba(0,0,0,0.22);
   }
@@ -896,6 +910,11 @@
     <span id="pair-banner-text">짝지을 아이콘을 누르세요</span>
     <button type="button" id="pair-cancel">취소</button>
   </div>
+  <div id="sync-banner" style="display:none;">
+    <span id="sync-banner-text">다른 기기에서 바뀌었어요 · 불러오면 방금 쓴 건 사라져요</span>
+    <button type="button" id="sync-banner-load">불러오기</button>
+    <button type="button" id="sync-banner-later">나중에</button>
+  </div>
   <div class="toast" id="toast"></div>
 </div>
 
@@ -1091,6 +1110,7 @@ function syncStartListening(){
   fbUnsub = fbDb.collection('users').doc(fbUser.uid).collection('notebooks')
     .onSnapshot(async (snap)=>{
       let changed = false;
+      let openChanged = false; // 지금 열어보고 있는 노트가 바뀌었는지
       for(const change of snap.docChanges()){
         const d = change.doc.data();
         const local = await dbGetOne(d.id);
@@ -1120,12 +1140,59 @@ function syncStartListening(){
         };
         await dbPut(nb, {skipSync:true});
         changed = true;
+        // 지금 열어보고 있는 바로 그 노트가 바뀐 경우를 따로 표시해둔다.
+        // (예전에는 저장소에만 쓰고 화면은 그대로여서, 안내만 뜨고 실제로는 아무것도 안 바뀌는 것처럼 보였음)
+        if(current && current.id === d.id) openChanged = true;
       }
       if(changed){
-        toast('다른 기기의 변경 내용을 불러왔어요');
+        if(openChanged) handleOpenNoteRemoteChange();
+        else toast('다른 기기의 변경 내용을 불러왔어요');
         if(document.getElementById('library').style.display !== 'none') refreshLibrary();
       }
     }, err=> console.error('동기화 수신 오류', err));
+}
+/* ---------- 열어둔 노트에 다른 기기의 변경이 도착했을 때 ----------
+   그냥 자동으로 갈아끼우면 지금 긋고 있던 획이 날아갈 수 있고(이 앱의 동기화는 노트 통째로
+   덮어쓰는 방식이라 부분 병합이 안 됨), 반대로 아무것도 안 하면 예전처럼 안내만 뜨고 화면은
+   그대로 남는다. 그래서 '지금 손대고 있지 않으면 조용히 새로 불러오고, 필기 중이면 물어본다'. */
+let lastEditAt = 0;          // 마지막으로 뭔가 고친 시각
+const EDITING_GRACE_MS = 10000; // 이 시간 안에 고친 적이 있으면 '필기 중'으로 보고 자동 교체하지 않음
+function isEditingNow(){
+  return !!activeAction || (Date.now() - lastEditAt) < EDITING_GRACE_MS;
+}
+function showSyncBanner(show){
+  const el = document.getElementById('sync-banner');
+  if(el) el.style.display = show ? 'flex' : 'none';
+}
+function handleOpenNoteRemoteChange(){
+  if(isEditingNow()){
+    showSyncBanner(true);   // 필기 중 -> 내가 누를 때까지 기다림
+  } else {
+    reloadOpenNotebook();   // 손대고 있지 않음 -> 조용히 반영
+  }
+}
+// 열어둔 노트를 저장소의 최신 내용으로 다시 읽어 화면까지 갱신. 보던 쪽·스크롤·배율은 그대로 유지.
+async function reloadOpenNotebook(){
+  if(!current) return;
+  const id = current.id;
+  const all = await dbGetAll();
+  const found = all.find(n=>n.id===id);
+  if(!found){ showSyncBanner(false); return; }
+  // 다시 불러오기 직전에 예약된 자동저장이 남아 있으면, 그게 옛 내용을 도로 덮어쓰므로 취소
+  clearTimeout(saveTimer);
+  // PDF 원본을 못 받아온 경우엔 이 기기에 이미 있는 원본을 계속 씀(pdfDoc은 그대로 재사용)
+  if(!found.pdfBuffer && current.pdfBuffer) found.pdfBuffer = current.pdfBuffer;
+  const keepTop = wrapEl.scrollTop, keepLeft = wrapEl.scrollLeft;
+  current = found;
+  if(curPage >= current.pages.length) curPage = Math.max(0, current.pages.length - 1);
+  // 되돌리기 기록은 바뀌기 전 내용을 가리키고 있어서 그대로 두면 엉뚱한 상태로 복원됨 -> 비움
+  history.length = 0; redoStack.length = 0;
+  document.getElementById('title-input').value = current.title;
+  renderAllPages();
+  wrapEl.scrollTop = keepTop; wrapEl.scrollLeft = keepLeft;
+  updatePageIndicatorFromScroll();
+  showSyncBanner(false);
+  toast('다른 기기의 변경 내용을 이 노트에 반영했어요');
 }
 
 function refreshSyncModalView(){
@@ -1915,6 +1982,7 @@ async function openNotebook(id, targetPage, targetShortcutId){
 }
 document.getElementById('btn-back').onclick = async ()=>{
   scratchOrigin = null; // 라이브러리로 나가면 '이면지에서 돌아가기' 대상은 없어짐
+  showSyncBanner(false); // 노트를 나가면 이 노트용 안내 배너는 의미가 없음
   await persist(true);
   editorEl.style.display = 'none';
   libraryEl.style.display = 'block';
@@ -2060,6 +2128,7 @@ function appendPageBlock(idx){
   const block = createPlaceholderBlock(idx);
   stackEl.appendChild(block);
   buildBlockContent(block, idx);
+  syncStackFootprint(); // 페이지가 늘어나 레이아웃 높이가 바뀌었으니 스크롤 영역도 다시 맞춤
   if(lazyObserver) lazyObserver.observe(block);
   if(idx===0) updateThumbnailSoon();
 }
@@ -2299,9 +2368,22 @@ function dist(a,b){ return Math.hypot(a.x-b.x, a.y-b.y); }
 function touchEntries(){
   return Array.from(activePointers.entries()).filter(([id,p])=>p.type==='touch');
 }
+// transform:scale()은 '보이는 크기'만 바꾸고 '레이아웃 크기'는 그대로라서, 축소해서 보면(폭 맞춤 등)
+// 실제로 그려진 것보다 스크롤 영역이 훨씬 넓게 남는다 -> 오른쪽·아래쪽에 빈 공간이 생겨 화면이 옆으로 밀림.
+// (예: 1920px 가로형 PDF를 0.51배로 보면 보이는 폭은 980px인데 스크롤 폭은 그대로 1940px = 940px이 빈 공간)
+// 반대로 확대하면 스크롤 영역이 모자라 오른쪽 끝을 못 본다.
+// 그래서 배율이 바뀔 때마다 음수/양수 여백으로 스크롤 영역을 '보이는 크기'에 맞춰준다.
+function syncStackFootprint(){
+  if(!current || !current.pages.length) return;
+  const maxW = Math.max(...current.pages.map(p=>p.width));
+  const natH = stackEl.offsetHeight; // 배율이 걸리기 전 레이아웃 높이(자리표시자도 실제 높이를 가짐). 여백은 포함 안 되므로 값이 흔들리지 않음
+  stackEl.style.marginRight = (maxW * zoom - maxW) + 'px';
+  if(natH > 0) stackEl.style.marginBottom = (natH * zoom - natH) + 'px';
+}
 // 콘텐츠가 화면보다 좁을 때만 margin으로 가운데 정렬 (핀치 중에는 호출하지 않음 — 좌표 기준이 흔들리지 않도록)
 function centerIfFits(){
   if(!current) return;
+  syncStackFootprint();
   const maxW = Math.max(...current.pages.map(p=>p.width));
   const scaledW = maxW * zoom;
   const avail = wrapEl.clientWidth - 20;
@@ -3339,6 +3421,14 @@ document.getElementById('pair-cancel').addEventListener('click', ()=>{
   setPairingMode(null);
   toast('짝 짓기를 취소했어요');
 });
+// 주의: 여기서 persist()로 이 기기 내용을 먼저 저장하면 안 된다.
+// 받아온 내용은 이미 저장소에 들어와 있어서, 지금 저장하면 그걸 도로 덮어쓴 뒤
+// 그 덮어쓴 걸 다시 읽어오게 되어 '불러오기'가 아무 일도 안 한 것처럼 보임.
+document.getElementById('sync-banner-load').addEventListener('click', ()=>{ reloadOpenNotebook(); });
+document.getElementById('sync-banner-later').addEventListener('click', ()=>{
+  showSyncBanner(false);
+  toast('이 기기 내용을 그대로 써요. 계속 쓰면 다른 기기 변경은 덮어써져요');
+});
 document.getElementById('opt-link').onclick = openShortcutLinkPicker;
 document.getElementById('link-search').addEventListener('input', renderLinkPickerList);
 document.getElementById('link-page-ok').addEventListener('click', confirmLinkPage);
@@ -3515,6 +3605,7 @@ function onPointerMove(e){
 
       zoom = newZoom;
       stackEl.style.transform = `scale(${zoom})`;
+      syncStackFootprint(); // 스크롤 영역을 먼저 새 배율에 맞춘 뒤에 위치를 잡아야 값이 잘리지 않음
       wrapEl.scrollLeft = layoutLeft - mid.x + lx * zoom;
       wrapEl.scrollTop  = layoutTop  - mid.y + ly * zoom;
     }
@@ -4641,6 +4732,7 @@ document.getElementById('layer-del').onclick = ()=>{
 let saveTimer = null;
 function scheduleSave(){
   const dot = document.getElementById('save-dot');
+  lastEditAt = Date.now(); // '지금 필기 중인지' 판단에 씀(동기화 자동 반영 여부)
   clearTimeout(saveTimer);
   saveTimer = setTimeout(()=> persist(), 700);
 }
