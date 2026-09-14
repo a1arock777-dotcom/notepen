@@ -129,6 +129,38 @@
   }
   .card-pin-btn.on{ background:rgba(217,98,43,0.92); opacity:1; }
   .card.card-pinned{ border-color:var(--accent); }
+  /* ---------- 여러 노트 한꺼번에 고르기 ---------- */
+  .lib-select-btn{
+    background:var(--surface); color:var(--text-dim); border:1px solid var(--border);
+    border-radius:999px; padding:11px 13px; font-size:13px; font-weight:700; cursor:pointer; margin-right:8px;
+    white-space:nowrap;
+  }
+  .lib-select-btn.on{ background:var(--accent); border-color:var(--accent); color:#fff; }
+  .card.selecting .card-del, .card.selecting .card-folder-btn,
+  .card.selecting .card-sync-btn, .card.selecting .card-pin-btn{ display:none; }
+  .card-check{
+    position:absolute; top:4px; right:4px; width:22px; height:22px; border-radius:50%;
+    background:rgba(0,0,0,0.45); border:2px solid #fff; color:#fff; font-size:12px; font-weight:800;
+    display:none; align-items:center; justify-content:center; padding:0; box-sizing:border-box;
+  }
+  .card.selecting .card-check{ display:flex; }
+  .card.selected{ border-color:var(--accent); box-shadow:0 0 0 2px var(--accent); }
+  .card.selected .card-check{ background:var(--accent); }
+  #select-bar{
+    position:fixed; left:50%; transform:translateX(-50%); bottom:14px; z-index:120;
+    display:none; align-items:center; gap:6px; max-width:96vw; overflow-x:auto;
+    background:var(--surface); border:1px solid var(--border); border-radius:999px;
+    padding:8px 10px; box-shadow:0 8px 24px rgba(0,0,0,0.25); scrollbar-width:none;
+  }
+  #select-bar::-webkit-scrollbar{ display:none; }
+  #select-bar.open{ display:flex; }
+  .sb-count{ flex:0 0 auto; font-size:12.5px; font-weight:800; padding:0 6px; white-space:nowrap; }
+  #select-bar button{
+    flex:0 0 auto; border:1px solid var(--border); background:var(--surface-2); color:var(--text);
+    border-radius:999px; padding:8px 11px; font-size:12.5px; font-weight:700; cursor:pointer; white-space:nowrap;
+  }
+  #select-bar button:disabled{ opacity:0.4; }
+  #sb-del{ background:rgba(192,57,43,0.12); border-color:rgba(192,57,43,0.5); color:#c0392b; }
   .card-nosync-badge{
     display:inline-block; margin-left:6px; font-size:10px; padding:1px 5px; border-radius:8px;
     background:#ffe0e0; color:#c0392b; vertical-align:middle; font-weight:600;
@@ -576,6 +608,7 @@
       </div>
       <div style="display:flex; align-items:center;">
         <button class="icon-btn" id="btn-sync" title="기기 간 동기화 설정" style="width:44px;height:44px;border-radius:50%;background:var(--surface);border:1px solid var(--border);margin-right:8px;">☁️</button>
+        <button class="lib-select-btn" id="btn-select-mode" title="여러 노트 고르기">☑️ 선택</button>
         <button class="new-btn" id="btn-new">＋ 새 노트</button>
       </div>
     </div>
@@ -590,8 +623,17 @@
   </div>
 
   <div id="folder-move-popover">
-    <div class="fmp-title">폴더로 이동</div>
+    <div class="fmp-title" id="fmp-title">폴더로 이동</div>
     <div id="folder-move-list"></div>
+  </div>
+
+  <div id="select-bar">
+    <span class="sb-count" id="sb-count">노트를 고르세요</span>
+    <button type="button" id="sb-all">전체 선택</button>
+    <button type="button" id="sb-move">📁 폴더로 이동</button>
+    <button type="button" id="sb-unfile">📤 폴더에서 빼기</button>
+    <button type="button" id="sb-pin">📌 상단 고정</button>
+    <button type="button" id="sb-del">🗑 삭제</button>
   </div>
 
   <!-- NEW NOTEBOOK MODAL -->
@@ -1087,7 +1129,13 @@ async function syncPushNotebook(nb){
       createdAt: nb.createdAt, updatedAt: nb.updatedAt,
       folderId: nb.folderId || null, thumbnail: nb.thumbnail || null,
       pagesJson: JSON.stringify(nb.pages),
-      pdfStoragePath: nb.pdfStoragePath || null
+      pdfStoragePath: nb.pdfStoragePath || null,
+      // ⚠️ 노트 데이터(nb)에 새 필드를 만들면 여기와 아래 mergeRemoteNotebook()에 반드시 같이 넣을 것.
+      // 여기 빠진 필드는 클라우드에 안 올라갈 뿐 아니라, 다른 기기의 변경을 받을 때 그 기기에서 '삭제'된다
+      // (IndexedDB put()은 레코드를 통째로 갈아끼우기 때문). 2026-09-14 목차가 이렇게 전부 사라졌음.
+      toc: Array.isArray(nb.toc) ? nb.toc : [],
+      penDefault: nb.penDefault || null,
+      linkedFrom: nb.linkedFrom || null
     };
     if(JSON.stringify(docData).length > 900000){
       toast('이 노트는 용량이 너무 커서 동기화에서 제외돼요.');
@@ -1095,6 +1143,25 @@ async function syncPushNotebook(nb){
     }
     await fbDb.collection('users').doc(fbUser.uid).collection('notebooks').doc(nb.id).set(docData);
   }catch(err){ console.error('동기화 업로드 실패', err); }
+}
+/* 클라우드 문서(d)로 이 기기의 노트를 만들 때, 클라우드에 없는 필드는 이 기기에 있던 값을 그대로 살린다.
+   IndexedDB는 put()이 레코드를 통째로 갈아끼우므로, 여기서 빠뜨린 필드는 '안 바뀜'이 아니라 '삭제'가 된다.
+   (2026-09-14: toc/penDefault/linkedFrom이 이 목록에 없어서, 다른 기기의 변경을 받을 때마다 목차가 지워졌음) */
+function mergeRemoteNotebook(d, local, pdfBuffer){
+  const keep = local || {};
+  return Object.assign({}, keep, {
+    id: d.id, title: d.title, type: d.type,
+    bgColor: d.bgColor, bgLined: d.lined,
+    createdAt: d.createdAt, updatedAt: d.updatedAt,
+    folderId: d.folderId || null, thumbnail: d.thumbnail || null,
+    // 원본 PDF를 못 받아왔으면 이 기기에 이미 있던 것을 계속 씀(받아온 게 없다고 지우면 안 됨)
+    pdfBuffer: pdfBuffer || keep.pdfBuffer || null,
+    pdfStoragePath: d.pdfStoragePath || null,
+    pages: JSON.parse(d.pagesJson),
+    toc: Array.isArray(d.toc) ? d.toc : (Array.isArray(keep.toc) ? keep.toc : []),
+    penDefault: d.penDefault || keep.penDefault || null,
+    linkedFrom: d.linkedFrom || keep.linkedFrom || null
+  });
 }
 async function syncDeleteNotebook(id){
   if(!fbUser || !fbDb) return;
@@ -1130,14 +1197,7 @@ function syncStartListening(){
             pdfBuffer = await resp.arrayBuffer();
           }catch(err){ console.error('PDF 다운로드 실패', err); }
         }
-        const nb = {
-          id: d.id, title: d.title, type: d.type,
-          bgColor: d.bgColor, bgLined: d.lined,
-          createdAt: d.createdAt, updatedAt: d.updatedAt,
-          folderId: d.folderId || null, thumbnail: d.thumbnail || null,
-          pdfBuffer, pdfStoragePath: d.pdfStoragePath || null,
-          pages: JSON.parse(d.pagesJson)
-        };
+        const nb = mergeRemoteNotebook(d, local, pdfBuffer);
         await dbPut(nb, {skipSync:true});
         changed = true;
         // 지금 열어보고 있는 바로 그 노트가 바뀐 경우를 따로 표시해둔다.
@@ -1609,6 +1669,7 @@ function attachCardReorder(card){
   card.addEventListener('touchcancel', ()=>{ if(reorderCard) endCardReorder(); });
   card.addEventListener('pointerdown', (e)=>{
     if(e.target.closest('button')) return;                 // 카드 안의 버튼(폴더/동기화/삭제)은 제외
+    if(selectMode) return;                                  // 여러 개 고르는 중에는 순서 바꾸기를 꺼둠
     if(e.pointerType === 'mouse' && e.button !== 0) return;
     reorderPointerId = e.pointerId;
     reorderStart = {x:e.clientX, y:e.clientY};
@@ -1656,7 +1717,9 @@ function renderGrid(){
   visible.forEach(nb=>{
     const card = document.createElement('div');
     const pinned = isNotePinned(nb.id);
-    card.className = 'card' + (pinned ? ' card-pinned' : '');
+    const picked = selectMode && selectedIds.has(nb.id);
+    card.className = 'card' + (pinned ? ' card-pinned' : '')
+      + (selectMode ? ' selecting' : '') + (picked ? ' selected' : '');
     card.dataset.id = nb.id; // 순서 바꾸기에서 카드-노트를 이어주는 값
     if(pinned) card.dataset.pinned = '1'; // 끌어서 옮기기·순서 저장에서 제외하는 표시
     const thumb = nb.thumbnail
@@ -1672,11 +1735,13 @@ function renderGrid(){
         <button class="card-sync-btn${nb.syncOff ? ' off' : ''}" data-id="${nb.id}" title="${nb.syncOff ? '이 노트는 동기화 제외됨 (눌러서 다시 포함)' : '이 노트는 동기화 중 (눌러서 제외)'}">${nb.syncOff ? '🚫' : '☁️'}</button>
         <button class="card-pin-btn${pinned ? ' on' : ''}" data-id="${nb.id}" title="${pinned ? `상단 ${notePinRank.get(nb.id)+1}번째로 고정됨 (눌러서 해제)` : '상단에 고정하기'}">📌</button>
         <button class="card-del" data-id="${nb.id}">✕</button>
+        <div class="card-check">${picked ? '✓' : ''}</div>
         ${thumb}
       </div>`;
     card.addEventListener('click', (e)=>{
       if(e.target.closest('.card-del') || e.target.closest('.card-folder-btn') || e.target.closest('.card-sync-btn') || e.target.closest('.card-pin-btn')) return;
       if(suppressCardClick){ suppressCardClick = false; return; } // 순서를 바꾸려고 끈 경우엔 노트를 열지 않음
+      if(selectMode){ toggleNoteSelection(nb.id); return; } // 고르는 중에는 노트를 열지 않고 체크만 함
       openNotebook(nb.id);
     });
     attachCardReorder(card); // 꾹 눌러서 순서 바꾸기
@@ -1702,21 +1767,28 @@ function renderGrid(){
     });
     gridEl.appendChild(card);
   });
+  updateSelectBar(); // 고른 개수·버튼 상태를 카드와 함께 다시 그림
 }
-function openFolderMovePopover(nb, anchorEl){
+// target: 노트 하나 또는 여러 개(배열). 여러 개면 고른 노트를 전부 같은 폴더로 옮김.
+function openFolderMovePopover(target, anchorEl){
   const pop = document.getElementById('folder-move-popover');
   const list = document.getElementById('folder-move-list');
+  const nbs = Array.isArray(target) ? target : [target];
+  document.getElementById('fmp-title').textContent =
+    nbs.length > 1 ? nbs.length + '개 노트를 옮길 폴더' : '폴더로 이동';
   list.innerHTML = '';
   const opts = [{id:null, name:'미분류'}, ...folders];
+  // 여러 개를 한꺼번에 옮길 때는 '지금 폴더' 강조를 하지 않음(서로 다를 수 있으므로)
+  const curId = nbs.length === 1 ? (nbs[0].folderId || null) : Symbol('multi');
   opts.forEach(opt=>{
     const row = document.createElement('div');
-    row.className = 'fmp-option' + ((nb.folderId||null)===opt.id ? ' sel' : '');
+    row.className = 'fmp-option' + (curId === opt.id ? ' sel' : '');
     row.textContent = opt.name;
     row.addEventListener('click', async (e)=>{
       e.stopPropagation();
-      nb.folderId = opt.id;
-      await dbPut(nb);
+      for(const nb of nbs){ nb.folderId = opt.id; await dbPut(nb); }
       pop.classList.remove('open');
+      if(nbs.length > 1){ toast(nbs.length + '개를 "' + opt.name + '"(으)로 옮겼어요'); exitSelectMode(); }
       refreshLibrary();
     });
     list.appendChild(row);
@@ -1726,11 +1798,109 @@ function openFolderMovePopover(nb, anchorEl){
   let left = rect.left;
   left = Math.max(8, Math.min(left, window.innerWidth - popW - 8));
   pop.style.left = left + 'px';
-  pop.style.top = (rect.bottom + 6) + 'px';
+  pop.style.top = '0px';
   pop.classList.add('open');
+  // 아래쪽 공간이 모자라면(화면 아래 선택 막대의 버튼 등) 기준 버튼 위로 띄움
+  const popH = pop.offsetHeight;
+  let top = rect.bottom + 6;
+  if(top + popH > window.innerHeight - 8) top = Math.max(8, rect.top - popH - 6);
+  pop.style.top = top + 'px';
 }
 document.getElementById('folder-move-popover').addEventListener('click', (e)=> e.stopPropagation());
 document.addEventListener('click', ()=> document.getElementById('folder-move-popover').classList.remove('open'));
+
+/* ---------- 여러 노트 한꺼번에 고르기 ----------
+   '선택'을 누르면 카드마다 체크 자리가 생기고, 카드를 눌러도 노트가 열리지 않고 체크만 된다.
+   고른 노트는 화면 아래 막대에서 폴더 이동·폴더에서 빼기·상단 고정/해제·삭제를 한 번에 할 수 있다.
+   고른 목록(selectedIds)은 폴더 탭을 바꾸거나 검색을 해도 유지된다(화면에서 사라진 노트만 정리됨). */
+let selectMode = false;
+const selectedIds = new Set();
+function visibleNotebooks(){
+  const inFolder = activeFolderId===null ? notebooks : notebooks.filter(nb=> (nb.folderId||null)===activeFolderId);
+  return searchQuery ? inFolder.filter(matchesSearch) : inFolder;
+}
+function selectedNotebooks(){ return notebooks.filter(nb=> selectedIds.has(nb.id)); }
+function setSelectMode(on){
+  selectMode = !!on;
+  selectedIds.clear();
+  const btn = document.getElementById('btn-select-mode');
+  btn.classList.toggle('on', selectMode);
+  btn.textContent = selectMode ? '✕ 선택 끝' : '☑️ 선택';
+  document.getElementById('folder-move-popover').classList.remove('open');
+  renderGrid();
+}
+function exitSelectMode(){ if(selectMode) setSelectMode(false); }
+function toggleNoteSelection(id){
+  if(selectedIds.has(id)) selectedIds.delete(id); else selectedIds.add(id);
+  renderGrid();
+}
+function updateSelectBar(){
+  const bar = document.getElementById('select-bar');
+  bar.classList.toggle('open', selectMode);
+  if(!selectMode) return;
+  // 삭제되거나 없어진 노트는 고른 목록에서도 정리
+  const alive = new Set(notebooks.map(nb=> nb.id));
+  Array.from(selectedIds).forEach(id=>{ if(!alive.has(id)) selectedIds.delete(id); });
+  const picked = selectedNotebooks();
+  const n = picked.length;
+  document.getElementById('sb-count').textContent = n ? (n + '개 선택') : '노트를 고르세요';
+  const allPinned = n > 0 && picked.every(nb=> isNotePinned(nb.id));
+  document.getElementById('sb-pin').textContent = allPinned ? '📌 고정 해제' : '📌 상단 고정';
+  const vis = visibleNotebooks();
+  const allChecked = vis.length > 0 && vis.every(nb=> selectedIds.has(nb.id));
+  document.getElementById('sb-all').textContent = allChecked ? '전체 해제' : '전체 선택';
+  ['sb-move','sb-unfile','sb-pin','sb-del'].forEach(id=>{ document.getElementById(id).disabled = (n === 0); });
+}
+document.getElementById('btn-select-mode').addEventListener('click', ()=> setSelectMode(!selectMode));
+document.getElementById('select-bar').addEventListener('click', (e)=> e.stopPropagation());
+document.getElementById('sb-all').addEventListener('click', ()=>{
+  const vis = visibleNotebooks();
+  const allChecked = vis.length > 0 && vis.every(nb=> selectedIds.has(nb.id));
+  vis.forEach(nb=>{ if(allChecked) selectedIds.delete(nb.id); else selectedIds.add(nb.id); });
+  renderGrid();
+});
+document.getElementById('sb-move').addEventListener('click', (e)=>{
+  const picked = selectedNotebooks();
+  if(!picked.length) return;
+  openFolderMovePopover(picked, e.currentTarget);
+});
+document.getElementById('sb-unfile').addEventListener('click', async ()=>{
+  const picked = selectedNotebooks();
+  if(!picked.length) return;
+  for(const nb of picked){ nb.folderId = null; await dbPut(nb); }
+  toast(picked.length + '개를 폴더에서 뺐어요');
+  exitSelectMode();
+  refreshLibrary();
+});
+document.getElementById('sb-pin').addEventListener('click', ()=>{
+  const picked = selectedNotebooks();
+  if(!picked.length) return;
+  const allPinned = picked.every(nb=> isNotePinned(nb.id));
+  const pins = loadNotePins();
+  if(allPinned){
+    // 전부 고정돼 있으면 해제. 푼 노트는 고정 노트 바로 뒤로 보내 그 자리에서 바로 끌어 옮길 수 있게 함
+    const ids = new Set(picked.map(nb=> nb.id));
+    saveNotePins(pins.filter(id=> !ids.has(id)));
+    const order = loadNoteOrder().filter(id=> !ids.has(id));
+    saveNoteOrder(picked.map(nb=> nb.id).concat(order));
+    toast(picked.length + '개의 상단 고정을 풀었어요');
+  } else {
+    picked.forEach(nb=>{ if(!pins.includes(nb.id)) pins.push(nb.id); });
+    saveNotePins(pins);
+    toast(picked.length + '개를 상단에 고정했어요');
+  }
+  exitSelectMode();
+  refreshLibrary();
+});
+document.getElementById('sb-del').addEventListener('click', async ()=>{
+  const picked = selectedNotebooks();
+  if(!picked.length) return;
+  if(!confirm('고른 노트 ' + picked.length + '개를 삭제할까요? 되돌릴 수 없어요.')) return;
+  for(const nb of picked){ await dbDelete(nb.id); }
+  toast(picked.length + '개를 삭제했어요');
+  exitSelectMode();
+  refreshLibrary();
+});
 
 function escapeHtml(s){ const d=document.createElement('div'); d.textContent=s; return d.innerHTML; }
 
