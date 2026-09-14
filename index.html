@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>NotePen</title>
-<!-- build: 2026-09-14b (선택 모드 + 동기화 필드 보존) -->
+<!-- build: 2026-09-15 (백업/복원 + 영구 저장 권한) -->
 <style>
   :root{
     --bg: #f4f3f1;
@@ -162,6 +162,26 @@
   }
   #select-bar button:disabled{ opacity:0.4; }
   #sb-del{ background:rgba(192,57,43,0.12); border-color:rgba(192,57,43,0.5); color:#c0392b; }
+  /* ---------- 백업 / 복원 ---------- */
+  #backup-banner{
+    display:flex; align-items:center; gap:8px; margin:0 0 10px;
+    background:rgba(217,98,43,0.12); border:1px solid rgba(217,98,43,0.45);
+    border-radius:12px; padding:9px 10px 9px 13px; font-size:12.5px; font-weight:700; color:var(--text);
+  }
+  #backup-banner span{ flex:1 1 auto; overflow:hidden; text-overflow:ellipsis; }
+  #backup-banner button{
+    flex:0 0 auto; border:none; border-radius:999px; padding:6px 11px;
+    font-size:12px; font-weight:700; cursor:pointer;
+  }
+  #backup-banner-go{ background:var(--accent); color:#fff; }
+  #backup-banner-later{ background:transparent; color:var(--text-dim); }
+  .backup-note{ font-size:11.5px; color:var(--text-dim); line-height:1.6; margin:0 0 8px; word-break:break-word; }
+  .backup-hr{ border:none; border-top:1px solid var(--border); margin:14px 0 12px; }
+  .backup-check{
+    display:flex; align-items:center; gap:7px; font-size:12px; color:var(--text-dim);
+    margin:0 0 7px; cursor:pointer;
+  }
+  .backup-check input{ width:16px; height:16px; flex:0 0 auto; }
   .card-nosync-badge{
     display:inline-block; margin-left:6px; font-size:10px; padding:1px 5px; border-radius:8px;
     background:#ffe0e0; color:#c0392b; vertical-align:middle; font-weight:600;
@@ -609,6 +629,7 @@
       </div>
       <div style="display:flex; align-items:center;">
         <button class="icon-btn" id="btn-sync" title="기기 간 동기화 설정" style="width:44px;height:44px;border-radius:50%;background:var(--surface);border:1px solid var(--border);margin-right:8px;">☁️</button>
+        <button class="icon-btn" id="btn-backup" title="백업 · 복원" style="width:44px;height:44px;border-radius:50%;background:var(--surface);border:1px solid var(--border);margin-right:8px;">💾</button>
         <button class="lib-select-btn" id="btn-select-mode" title="여러 노트 고르기">☑️ 선택</button>
         <button class="new-btn" id="btn-new">＋ 새 노트</button>
       </div>
@@ -617,6 +638,11 @@
       <span class="search-ico">🔍</span>
       <input id="lib-search" type="text" placeholder="노트 제목 검색" autocomplete="off">
       <button type="button" id="lib-search-clear" title="검색어 지우기">✕</button>
+    </div>
+    <div id="backup-banner" style="display:none;">
+      <span id="backup-banner-text"></span>
+      <button type="button" id="backup-banner-go">백업</button>
+      <button type="button" id="backup-banner-later">나중에</button>
     </div>
     <div class="folder-tabs" id="folder-tabs"></div>
     <div class="grid" id="grid"></div>
@@ -753,6 +779,27 @@
   </div>
 
   <!-- SYNC MODAL -->
+  <div class="modal-backdrop" id="modal-backup" style="display:none;">
+    <div class="modal">
+      <h3>백업 · 복원</h3>
+      <p>노트는 이 기기 안에 저장돼요. 기기를 초기화하거나 브라우저의 사이트 데이터를 지우면 사라질 수 있으니, 가끔 파일로 백업해 두세요.</p>
+      <div id="backup-storage-line" class="backup-note"></div>
+      <div id="backup-last" class="backup-note"></div>
+      <button class="opt-btn" id="backup-export">📦 전체 백업 내려받기<small>모든 노트 + PDF 원본을 zip 파일 하나로</small></button>
+      <div id="backup-progress" class="backup-note"></div>
+      <hr class="backup-hr">
+      <button class="opt-btn" id="backup-import-btn">📥 백업 파일에서 복원<small>내려받아 둔 zip 파일을 고르세요</small></button>
+      <input type="file" id="backup-file" accept=".zip,application/zip" style="display:none;">
+      <label class="backup-check"><input type="checkbox" id="backup-overwrite"> 이미 있는 노트도 덮어쓰기</label>
+      <label class="backup-check"><input type="checkbox" id="backup-restore-settings" checked> 폴더·순서·고정 설정도 함께 복원</label>
+      <div id="backup-import-progress" class="backup-note"></div>
+      <div id="backup-push-row" style="display:none;">
+        <button class="opt-btn" id="backup-push">☁️ 복원한 노트를 클라우드에도 올리기<small>복원은 이 기기에만 반영돼요</small></button>
+      </div>
+      <button class="modal-close" id="modal-backup-close">닫기</button>
+    </div>
+  </div>
+
   <div class="modal-backdrop" id="modal-sync" style="display:none;">
     <div class="modal">
       <h3>기기 간 자동 동기화</h3>
@@ -1444,6 +1491,7 @@ async function refreshLibrary(){
   sortNotebooks(); // 내가 정해둔 순서대로 (없으면 최근 수정순)
   renderFolderTabs();
   renderGrid();
+  updateBackupBanner();
 }
 /* ---------- 노트 제목 검색 ----------
    라이브러리 목록을 제목에 검색어가 들어간 노트만 남기고 걸러줌(폴더 필터와 함께 적용됨). */
@@ -1901,6 +1949,307 @@ document.getElementById('sb-del').addEventListener('click', async ()=>{
   toast(picked.length + '개를 삭제했어요');
   exitSelectMode();
   refreshLibrary();
+});
+
+/* ---------- 데이터 지키기: 영구 저장 권한 + 통째 백업/복원 ----------
+   노트 본체는 이 기기의 IndexedDB에 있는데, 브라우저는 기본적으로 이걸 '지워도 되는 데이터'로 본다.
+   저장공간이 모자라면 브라우저가 알아서 지울 수 있고, '쿠키 및 사이트 데이터 삭제'로도 통째로 사라진다.
+   게다가 pagesJson이 900KB를 넘는 큰 노트는 동기화에서 제외돼 클라우드 사본조차 없다.
+   그래서 (1) 영구 저장 권한을 요청하고 (2) 파일 하나로 통째 백업/복원할 수 있게 한다. */
+const BACKUP_TIME_KEY = 'notepen_last_backup';
+const BACKUP_SNOOZE_KEY = 'notepen_backup_snooze';
+const BACKUP_REMIND_DAYS = 7;
+const BACKUP_SNOOZE_DAYS = 3;
+let storagePersisted = null;   // true / false / null(이 브라우저는 확인 불가)
+let restoredIds = [];          // 방금 복원한 노트들(클라우드로 올릴 때 씀)
+
+async function initStorageSafety(){
+  try{
+    if(navigator.storage && navigator.storage.persisted){
+      storagePersisted = await navigator.storage.persisted();
+      // 크롬은 홈 화면에 추가했거나 자주 쓰는 사이트면 승인해준다. 거절돼도 앱 동작에는 영향 없음.
+      if(!storagePersisted && navigator.storage.persist) storagePersisted = await navigator.storage.persist();
+    }
+  }catch(err){ storagePersisted = null; }
+  updateStorageLine();
+}
+function fmtBytes(n){
+  if(n < 1024) return n + 'B';
+  if(n < 1048576) return (n/1024).toFixed(0) + 'KB';
+  if(n < 1073741824) return (n/1048576).toFixed(1) + 'MB';
+  return (n/1073741824).toFixed(2) + 'GB';
+}
+async function updateStorageLine(){
+  const el = document.getElementById('backup-storage-line');
+  if(!el) return;
+  let used = '';
+  try{
+    if(navigator.storage && navigator.storage.estimate){
+      const e = await navigator.storage.estimate();
+      if(e && e.usage != null) used = ' · 쓰는 중 ' + fmtBytes(e.usage);
+    }
+  }catch(err){ /* 무시 */ }
+  el.textContent = '이 기기 저장소: ' + (
+    storagePersisted === true  ? '✅ 영구 보호 켜짐' :
+    storagePersisted === false ? '⚠️ 영구 보호 꺼짐 — 홈 화면에 추가해두면 켜질 확률이 올라가요' :
+                                 '❔ 이 브라우저에서는 확인 불가'
+  ) + used;
+}
+
+/* ---------- 의존성 없는 아주 작은 ZIP 만들기/읽기 (압축 없이 '저장'만) ----------
+   라이브러리를 안 쓰는 이유: 이 앱은 CDN이 막히면 기능이 죽는 구조라 의존성을 더 늘리지 않으려고.
+   PDF는 이미 압축돼 있어서 무압축으로 담아도 크기 차이가 거의 없고, base64(용량 33% 증가)도 피할 수 있다. */
+let crcTable = null;
+function crc32(buf){
+  if(!crcTable){
+    crcTable = new Uint32Array(256);
+    for(let n=0;n<256;n++){ let c=n; for(let k=0;k<8;k++) c = (c & 1) ? (0xEDB88320 ^ (c>>>1)) : (c>>>1); crcTable[n] = c>>>0; }
+  }
+  let c = 0xFFFFFFFF;
+  for(let i=0;i<buf.length;i++) c = crcTable[(c ^ buf[i]) & 0xFF] ^ (c>>>8);
+  return (c ^ 0xFFFFFFFF)>>>0;
+}
+function zipMakeBlob(entries){
+  const enc = new TextEncoder();
+  const parts = [], central = [];
+  let offset = 0;
+  for(const e of entries){
+    const nameBytes = enc.encode(e.name);
+    const crc = crc32(e.data);
+    const lh = new DataView(new ArrayBuffer(30));
+    lh.setUint32(0, 0x04034b50, true);
+    lh.setUint16(4, 20, true); lh.setUint16(6, 0x0800, true); lh.setUint16(8, 0, true);
+    lh.setUint16(10, 0, true); lh.setUint16(12, 0, true);
+    lh.setUint32(14, crc, true);
+    lh.setUint32(18, e.data.length, true);
+    lh.setUint32(22, e.data.length, true);
+    lh.setUint16(26, nameBytes.length, true); lh.setUint16(28, 0, true);
+    parts.push(new Uint8Array(lh.buffer), nameBytes, e.data);
+    const ch = new DataView(new ArrayBuffer(46));
+    ch.setUint32(0, 0x02014b50, true);
+    ch.setUint16(4, 20, true); ch.setUint16(6, 20, true);
+    ch.setUint16(8, 0x0800, true); ch.setUint16(10, 0, true);
+    ch.setUint16(12, 0, true); ch.setUint16(14, 0, true);
+    ch.setUint32(16, crc, true);
+    ch.setUint32(20, e.data.length, true);
+    ch.setUint32(24, e.data.length, true);
+    ch.setUint16(28, nameBytes.length, true); ch.setUint16(30, 0, true); ch.setUint16(32, 0, true);
+    ch.setUint16(34, 0, true); ch.setUint16(36, 0, true);
+    ch.setUint32(38, 0, true);
+    ch.setUint32(42, offset, true);
+    central.push(new Uint8Array(ch.buffer), nameBytes);
+    offset += 30 + nameBytes.length + e.data.length;
+  }
+  let cdSize = 0;
+  for(const p of central) cdSize += p.length;
+  const eo = new DataView(new ArrayBuffer(22));
+  eo.setUint32(0, 0x06054b50, true);
+  eo.setUint16(4, 0, true); eo.setUint16(6, 0, true);
+  eo.setUint16(8, entries.length, true); eo.setUint16(10, entries.length, true);
+  eo.setUint32(12, cdSize, true); eo.setUint32(16, offset, true);
+  eo.setUint16(20, 0, true);
+  return new Blob(parts.concat(central, [new Uint8Array(eo.buffer)]), {type:'application/zip'});
+}
+async function zipOpen(file){
+  const tailLen = Math.min(file.size, 66000);
+  const tail = new Uint8Array(await file.slice(file.size - tailLen).arrayBuffer());
+  let eoc = -1;
+  for(let i = tail.length - 22; i >= 0; i--){
+    if(tail[i]===0x50 && tail[i+1]===0x4b && tail[i+2]===0x05 && tail[i+3]===0x06){ eoc = i; break; }
+  }
+  if(eoc < 0) throw new Error('zip 파일이 아니에요');
+  const ev = new DataView(tail.buffer, tail.byteOffset + eoc, 22);
+  const count = ev.getUint16(10, true), cdSize = ev.getUint32(12, true), cdOff = ev.getUint32(16, true);
+  const cd = new Uint8Array(await file.slice(cdOff, cdOff + cdSize).arrayBuffer());
+  const dec = new TextDecoder();
+  const entries = [];
+  let p = 0;
+  for(let i=0;i<count && p + 46 <= cd.length;i++){
+    const v = new DataView(cd.buffer, cd.byteOffset + p, 46);
+    if(v.getUint32(0, true) !== 0x02014b50) break;
+    const method = v.getUint16(10, true), csize = v.getUint32(20, true);
+    const nameLen = v.getUint16(28, true), extraLen = v.getUint16(30, true), cmtLen = v.getUint16(32, true);
+    const lho = v.getUint32(42, true);
+    entries.push({ name: dec.decode(cd.subarray(p+46, p+46+nameLen)), method, csize, lho });
+    p += 46 + nameLen + extraLen + cmtLen;
+  }
+  return { file, entries };
+}
+async function zipBytes(zip, e){
+  if(e.method !== 0) throw new Error('이 백업 파일은 압축돼 있어 읽을 수 없어요');
+  const hv = new DataView(await zip.file.slice(e.lho, e.lho + 30).arrayBuffer());
+  const start = e.lho + 30 + hv.getUint16(26, true) + hv.getUint16(28, true);
+  return new Uint8Array(await zip.file.slice(start, start + e.csize).arrayBuffer());
+}
+
+const BACKUP_SETTING_KEYS = ['notepen_folders','notepen_note_order','notepen_note_pins','notepen_note_favs','notepen_scratch_note'];
+
+async function exportBackup(){
+  const btn = document.getElementById('backup-export');
+  const prog = document.getElementById('backup-progress');
+  btn.disabled = true;
+  try{
+    const all = await dbGetAll();
+    if(!all.length){ prog.textContent = '백업할 노트가 없어요'; return; }
+    const enc = new TextEncoder();
+    const entries = [], index = [];
+    let n = 0;
+    for(const nb of all){
+      n++;
+      prog.textContent = '노트 담는 중… ' + n + '/' + all.length;
+      await new Promise(r=> setTimeout(r, 0)); // 화면이 멈추지 않게 한 박자 쉼
+      const pdf = nb.pdfBuffer || null;
+      const meta = Object.assign({}, nb);
+      delete meta.pdfBuffer;
+      entries.push({ name:'notes/' + nb.id + '.json', data: enc.encode(JSON.stringify(meta)) });
+      if(pdf) entries.push({ name:'pdfs/' + nb.id + '.pdf', data: (pdf instanceof Uint8Array ? pdf : new Uint8Array(pdf)) });
+      index.push({ id: nb.id, title: nb.title, type: nb.type, pages: (nb.pages||[]).length, hasPdf: !!pdf, updatedAt: nb.updatedAt });
+    }
+    const settings = {};
+    BACKUP_SETTING_KEYS.forEach(k=>{ const v = localStorage.getItem(k); if(v != null) settings[k] = v; });
+    entries.push({ name:'settings.json', data: enc.encode(JSON.stringify(settings)) });
+    entries.push({ name:'manifest.json', data: enc.encode(JSON.stringify({ app:'NotePen', format:1, exportedAt: Date.now(), noteCount: all.length, notes: index })) });
+    prog.textContent = '파일 만드는 중…';
+    await new Promise(r=> setTimeout(r, 0));
+    const blob = zipMakeBlob(entries);
+    const d = new Date(), pad = x=> String(x).padStart(2,'0');
+    const fname = 'notepen-backup-' + d.getFullYear() + pad(d.getMonth()+1) + pad(d.getDate()) + '-' + pad(d.getHours()) + pad(d.getMinutes()) + '.zip';
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = fname;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(()=> URL.revokeObjectURL(url), 60000);
+    localStorage.setItem(BACKUP_TIME_KEY, String(Date.now()));
+    localStorage.removeItem(BACKUP_SNOOZE_KEY);
+    prog.textContent = '노트 ' + all.length + '개 · ' + fmtBytes(blob.size) + ' 내려받았어요 (' + fname + ')';
+    updateBackupBanner();
+    updateBackupModal();
+  }catch(err){
+    console.error('백업 실패', err);
+    prog.textContent = '백업에 실패했어요: ' + (err && err.message ? err.message : err);
+  }finally{ btn.disabled = false; }
+}
+
+async function importBackup(file){
+  const prog = document.getElementById('backup-import-progress');
+  const overwrite = document.getElementById('backup-overwrite').checked;
+  restoredIds = [];
+  document.getElementById('backup-push-row').style.display = 'none';
+  prog.textContent = '백업 파일 읽는 중…';
+  try{
+    const zip = await zipOpen(file);
+    const dec = new TextDecoder();
+    const manEntry = zip.entries.find(e=> e.name === 'manifest.json');
+    if(!manEntry) throw new Error('NotePen 백업 파일이 아니에요');
+    const man = JSON.parse(dec.decode(await zipBytes(zip, manEntry)));
+    const noteEntries = zip.entries.filter(e=> e.name.indexOf('notes/') === 0 && /\.json$/.test(e.name));
+    const pdfMap = new Map();
+    zip.entries.forEach(e=>{ if(e.name.indexOf('pdfs/') === 0) pdfMap.set(e.name.slice(5).replace(/\.pdf$/, ''), e); });
+    let added = 0, skipped = 0, k = 0;
+    for(const e of noteEntries){
+      k++;
+      prog.textContent = '복원 중… ' + k + '/' + noteEntries.length;
+      await new Promise(r=> setTimeout(r, 0));
+      let nb;
+      try{ nb = JSON.parse(dec.decode(await zipBytes(zip, e))); }catch(err){ skipped++; continue; }
+      if(!nb || !nb.id || !Array.isArray(nb.pages)){ skipped++; continue; }
+      const local = await dbGetOne(nb.id);
+      if(local && !overwrite){ skipped++; continue; }
+      if(local && local.updatedAt > nb.updatedAt &&
+         !confirm('"' + nb.title + '"은(는) 이 기기 것이 더 최신이에요. 그래도 백업 내용으로 덮어쓸까요?')){ skipped++; continue; }
+      const pe = pdfMap.get(nb.id);
+      if(pe) nb.pdfBuffer = (await zipBytes(zip, pe)).buffer;
+      // 옛 백업이 클라우드의 최신본을 덮어쓰지 않도록 이 기기에만 반영한다(원하면 아래 버튼으로 올림)
+      await dbPut(nb, {skipSync:true});
+      restoredIds.push(nb.id);
+      added++;
+    }
+    const sEntry = zip.entries.find(e=> e.name === 'settings.json');
+    if(sEntry && document.getElementById('backup-restore-settings').checked){
+      try{
+        const s = JSON.parse(dec.decode(await zipBytes(zip, sEntry)));
+        Object.keys(s).forEach(key=>{ if(BACKUP_SETTING_KEYS.indexOf(key) >= 0){ try{ localStorage.setItem(key, s[key]); }catch(err){} } });
+        try{ folders = JSON.parse(localStorage.getItem('notepen_folders') || '[]'); }catch(err){ folders = []; }
+      }catch(err){ console.error('설정 복원 실패', err); }
+    }
+    prog.textContent = '복원 ' + added + '개 · 건너뜀 ' + skipped + '개 (백업 시각: ' + new Date(man.exportedAt).toLocaleString('ko-KR') + ')';
+    document.getElementById('backup-push-row').style.display = restoredIds.length ? 'block' : 'none';
+    await refreshLibrary();
+  }catch(err){
+    console.error('복원 실패', err);
+    prog.textContent = '복원에 실패했어요: ' + (err && err.message ? err.message : err);
+  }
+}
+
+async function pushRestoredToCloud(){
+  const prog = document.getElementById('backup-import-progress');
+  if(!restoredIds.length) return;
+  if(!fbUser || !fbDb){ prog.textContent = '먼저 ☁️에서 동기화 로그인을 해주세요'; return; }
+  const ids = restoredIds.slice();
+  let k = 0;
+  for(const id of ids){
+    k++;
+    prog.textContent = '클라우드에 올리는 중… ' + k + '/' + ids.length;
+    const nb = await dbGetOne(id);
+    if(nb) await syncPushNotebook(nb);
+  }
+  prog.textContent = ids.length + '개를 클라우드에 올렸어요 (900KB가 넘는 노트는 제외돼요)';
+  restoredIds = [];
+  document.getElementById('backup-push-row').style.display = 'none';
+}
+
+function daysSinceBackup(){
+  const t = Number(localStorage.getItem(BACKUP_TIME_KEY) || 0);
+  if(!t) return null; // 한 번도 백업한 적 없음
+  return Math.floor((Date.now() - t) / 86400000);
+}
+function updateBackupBanner(){
+  const el = document.getElementById('backup-banner');
+  if(!el) return;
+  const snooze = Number(localStorage.getItem(BACKUP_SNOOZE_KEY) || 0);
+  if(!notebooks.length || Date.now() < snooze){ el.style.display = 'none'; return; }
+  const d = daysSinceBackup();
+  if(d !== null && d < BACKUP_REMIND_DAYS){ el.style.display = 'none'; return; }
+  document.getElementById('backup-banner-text').textContent = (d === null)
+    ? '아직 백업한 적이 없어요 · 기기를 초기화하면 노트가 사라질 수 있어요'
+    : '백업한 지 ' + d + '일 됐어요';
+  el.style.display = 'flex';
+}
+function updateBackupModal(){
+  const t = Number(localStorage.getItem(BACKUP_TIME_KEY) || 0);
+  const d = daysSinceBackup();
+  document.getElementById('backup-last').textContent = t
+    ? '마지막 백업: ' + new Date(t).toLocaleString('ko-KR') + ' (' + d + '일 전)'
+    : '마지막 백업: 없음';
+  updateStorageLine();
+}
+function openBackupModal(){
+  document.getElementById('backup-progress').textContent = '';
+  document.getElementById('backup-import-progress').textContent = '';
+  document.getElementById('backup-push-row').style.display = 'none';
+  restoredIds = [];
+  updateBackupModal();
+  document.getElementById('modal-backup').style.display = 'flex';
+}
+document.getElementById('btn-backup').addEventListener('click', openBackupModal);
+document.getElementById('modal-backup-close').addEventListener('click', ()=>{
+  document.getElementById('modal-backup').style.display = 'none';
+});
+document.getElementById('modal-backup').addEventListener('click', (e)=>{
+  if(e.target.id === 'modal-backup') document.getElementById('modal-backup').style.display = 'none';
+});
+document.getElementById('backup-export').addEventListener('click', exportBackup);
+document.getElementById('backup-import-btn').addEventListener('click', ()=> document.getElementById('backup-file').click());
+document.getElementById('backup-file').addEventListener('change', (e)=>{
+  const f = e.target.files && e.target.files[0];
+  e.target.value = ''; // 같은 파일을 다시 골라도 change가 뜨도록
+  if(f) importBackup(f);
+});
+document.getElementById('backup-push').addEventListener('click', pushRestoredToCloud);
+document.getElementById('backup-banner-go').addEventListener('click', openBackupModal);
+document.getElementById('backup-banner-later').addEventListener('click', ()=>{
+  localStorage.setItem(BACKUP_SNOOZE_KEY, String(Date.now() + BACKUP_SNOOZE_DAYS * 86400000));
+  updateBackupBanner();
 });
 
 function escapeHtml(s){ const d=document.createElement('div'); d.textContent=s; return d.innerHTML; }
@@ -4996,6 +5345,7 @@ qmLoad();
 
 /* ================= Init ================= */
 refreshLibrary();
+initStorageSafety(); // 브라우저가 노트를 함부로 지우지 못하게 영구 저장 권한을 요청
 </script>
 </body>
 </html>
