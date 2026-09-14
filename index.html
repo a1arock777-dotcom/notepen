@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>NotePen</title>
-<!-- build: 2026-09-15b (지우개 옵션 기억 + 전체지우기 후 기본펜 복귀) -->
+<!-- build: 2026-09-15c (페이지 번호를 화면 중앙 기준으로) -->
 <style>
   :root{
     --bg: #f4f3f1;
@@ -2494,9 +2494,10 @@ async function openNotebook(id, targetPage, targetShortcutId){
     else wrapEl.scrollTop = 0;
   }
   // 마지막으로 보던 페이지/위치에서 이어서 열기 (기록이 없으면 맨 위)
-  else if(validLast && (curPage > 0 || validLast.o > 0)){
+  else if(validLast && (curPage > 0 || validLast.o)){
     scrollToPage(curPage);
-    if(validLast.o > 0) wrapEl.scrollTop += validLast.o * zoom;
+    // 오프셋은 음수일 수도 있음(페이지가 화면보다 짧아 가운데 정렬된 경우) -> 0이 아니면 그대로 반영
+    if(validLast.o) wrapEl.scrollTop += validLast.o * zoom;
     updatePageIndicatorFromScroll();
     if(curPage > 0) toast(`마지막으로 보던 ${curPage+1}쪽부터 열었어요`);
   } else {
@@ -2730,13 +2731,32 @@ function saveLastPos(force){
   }catch(e){ /* 저장 실패는 조용히 무시(시크릿 모드 등) */ }
 }
 function updatePageIndicatorFromScroll(){
+  // '지금 보고 있는 페이지'는 화면 세로 한가운데에 걸쳐 있는 페이지로 본다.
+  // 예전에는 '위쪽 끝이 화면 맨 위에 가장 가까운 페이지'를 골랐는데, 그러면 3쪽에서 2쪽으로 올라올 때
+  // 2쪽 한가운데를 지나야 번호가 바뀌어서 반영이 늦는 것처럼 느껴졌음.
   const wrapRect = wrapEl.getBoundingClientRect();
-  const blocks = Array.from(stackEl.querySelectorAll('.page-block'));
-  let best = curPage, bestDist = Infinity;
-  blocks.forEach((b,i)=>{
-    const d = Math.abs(b.getBoundingClientRect().top - wrapRect.top);
-    if(d < bestDist){ bestDist = d; best = i; }
-  });
+  const lastIdx = Math.max(0, current.pages.length - 1);
+  let best = curPage;
+  // 맨 위/맨 아래에 붙어 있으면 첫 쪽/마지막 쪽으로 고정.
+  // (축소해서 여러 쪽이 한 화면에 보일 때, 맨 위인데도 2쪽으로 뜨는 것을 막기 위함)
+  if(wrapEl.scrollTop <= 2){
+    best = 0;
+  } else if(wrapEl.scrollTop + wrapEl.clientHeight >= wrapEl.scrollHeight - 2){
+    best = lastIdx;
+  } else {
+    const midY = wrapRect.top + wrapRect.height / 2;
+    let bestDist = Infinity, hit = false;
+    stackEl.querySelectorAll('.page-block').forEach(b=>{
+      if(hit) return;
+      const i = parseInt(b.dataset.pageIdx, 10);
+      if(!Number.isFinite(i)) return;
+      const r = b.getBoundingClientRect();
+      if(midY >= r.top && midY < r.bottom){ hit = true; best = i; return; }
+      // 페이지 사이 여백에 한가운데가 걸린 경우에만 가장 가까운 쪽을 고름
+      const d = (midY < r.top) ? (r.top - midY) : (midY - r.bottom);
+      if(d < bestDist){ bestDist = d; best = i; }
+    });
+  }
   if(best !== curPage){
     curPage = best;
     if(document.getElementById('layers-panel').classList.contains('open')) refreshLayersPanel();
@@ -2755,7 +2775,10 @@ function scrollToPage(idx){
   ensureBlockBuilt(idx);
   const wrapRect = wrapEl.getBoundingClientRect();
   const blockRect = block.getBoundingClientRect();
-  wrapEl.scrollTo({ top: wrapEl.scrollTop + (blockRect.top - wrapRect.top) - 12, behavior:'auto' });
+  // 페이지 번호를 '화면 한가운데' 기준으로 매기므로, 화면보다 짧은 페이지(축소해서 볼 때 등)는
+  // 위에 딱 붙이지 않고 가운데에 놓아야 점프 직후 번호가 다음 쪽으로 튀지 않음.
+  const gap = (blockRect.height < wrapRect.height) ? (wrapRect.height - blockRect.height) / 2 : 12;
+  wrapEl.scrollTo({ top: wrapEl.scrollTop + (blockRect.top - wrapRect.top) - gap, behavior:'auto' });
   curPage = idx;
   updatePageIndicatorDisplay();
   pruneFarBlocks();
