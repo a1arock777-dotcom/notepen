@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>NotePen</title>
-<!-- build: 2026-09-15 (백업/복원 + 영구 저장 권한) -->
+<!-- build: 2026-09-15b (지우개 옵션 기억 + 전체지우기 후 기본펜 복귀) -->
 <style>
   :root{
     --bg: #f4f3f1;
@@ -1457,7 +1457,20 @@ let current = null;      // current notebook object (in-memory, mutable)
 let curPage = 0;
 let activeLayerIdx = 0;
 let tool = 'pen';
-let eraserMode = 'select'; // 지우개 버튼의 동작 모드: 'select'(부분 지우기, 기본) | 'clearPage'(현재 페이지 전체 지우기) | 'clearAll'(현재 페이지만 남기고 전체 삭제)
+/* 지우개 버튼의 동작 모드: 'select'(부분 지우기) | 'clearPage'(현재 페이지 전체 지우기) | 'clearAll'(현재 페이지만 남기고 전체 삭제)
+   마지막으로 고른 모드를 이 기기에 기억해둠 -> 앱을 새로 열거나 새 버전을 받아도 다시 고를 필요가 없음.
+   전체 지우기·전체 삭제는 누를 때마다 확인 팝오버가 뜨므로, 기억해둬도 곧바로 지워지지는 않음. */
+const ERASER_MODE_KEY = 'notepen_eraser_mode';
+const ERASER_MODES = ['select','clearPage','clearAll'];
+let eraserMode = (function(){
+  try{
+    const v = localStorage.getItem(ERASER_MODE_KEY);
+    return ERASER_MODES.indexOf(v) >= 0 ? v : 'select';
+  }catch(err){ return 'select'; }
+})();
+function saveEraserMode(){
+  try{ localStorage.setItem(ERASER_MODE_KEY, eraserMode); }catch(err){ /* 저장 실패는 무시 */ }
+}
 let color = '#1c1c1c';
 let size = 3;
 let highlightColor = '#ff3b30';
@@ -2082,7 +2095,7 @@ async function zipBytes(zip, e){
   return new Uint8Array(await zip.file.slice(start, start + e.csize).arrayBuffer());
 }
 
-const BACKUP_SETTING_KEYS = ['notepen_folders','notepen_note_order','notepen_note_pins','notepen_note_favs','notepen_scratch_note'];
+const BACKUP_SETTING_KEYS = ['notepen_folders','notepen_note_order','notepen_note_pins','notepen_note_favs','notepen_scratch_note','notepen_eraser_mode'];
 
 async function exportBackup(){
   const btn = document.getElementById('backup-export');
@@ -3028,12 +3041,22 @@ function clearPageWriting(pageIdx, redraw){
     if(redraw) redrawLayerCanvas(pageIdx, li);
   });
 }
+// 전체 지우기·전체 삭제를 한 뒤에는 그 노트에 정해둔 기본 펜(도구·색·굵기)으로 되돌린다.
+// 지우고 나서 바로 이어 쓰는 흐름이라 지우개가 그대로 잡혀 있으면 번거롭기 때문.
+// 기본 펜을 정해두지 않은 노트에서는 아무것도 바꾸지 않는다(applyNotePenDefault가 그냥 빠져나감).
+// 부분 지우기(select)에서는 부르지 않음 — 보통 여러 번 문지르게 되므로 지우개를 유지해야 함.
+function returnToNotePenDefault(){
+  if(!(current && current.penDefault)) return false;
+  applyNotePenDefault();
+  return true;
+}
 function performEraserAction(mode){
   if(mode === 'clearPage'){
     showEraserConfirm(`지금 보고 있는 페이지(${curPage+1}페이지)의 필기 내용을 모두 지우고 백지로 만들까요?`, ()=>{
       clearPageWriting(curPage, true);
       scheduleSave();
-      toast('현재 페이지를 백지로 만들었어요');
+      const back = returnToNotePenDefault();
+      toast('현재 페이지를 백지로 만들었어요' + (back ? ' · 기본 펜으로 돌아왔어요' : ''));
     });
   } else if(mode === 'clearAll'){
     const multi = current.pages.length > 1;
@@ -3047,7 +3070,8 @@ function performEraserAction(mode){
       clearPageWriting(0, false);
       renderAllPages();
       scheduleSave();
-      toast(multi ? '현재 페이지만 남기고 모두 지웠어요' : '현재 페이지를 백지로 만들었어요');
+      const back = returnToNotePenDefault();
+      toast((multi ? '현재 페이지만 남기고 모두 지웠어요' : '현재 페이지를 백지로 만들었어요') + (back ? ' · 기본 펜으로 돌아왔어요' : ''));
     });
   }
 }
@@ -4589,6 +4613,7 @@ document.querySelectorAll('.eraser-opt').forEach(btn=>{
   btn.addEventListener('click', (ev)=>{
     ev.stopPropagation();
     eraserMode = btn.dataset.eraserMode;
+    saveEraserMode(); // 다음에 앱을 열 때도 이 모드로 시작
     renderEraserPopover();
     closeEraserPopover();
     if(eraserMode !== 'select') performEraserAction(eraserMode);
