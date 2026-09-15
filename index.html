@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>NotePen</title>
-<!-- build: 2026-09-15f (올가미 복사·잘라내기·붙여넣기) -->
+<!-- build: 2026-09-15g (펜으로 두 번 톡 = 텍스트 상자) -->
 <style>
   :root{
     --bg: #f4f3f1;
@@ -491,6 +491,41 @@
   .page-image.img-moving .img-head{ background:rgba(217,98,43,0.88); cursor:grabbing; }
 
   /* ---------- 노트 위에 붙이는 새 노트 바로가기 아이콘 ---------- */
+  /* ---------- 텍스트 상자 (펜으로 두 번 톡톡) ---------- */
+  .page-text{
+    position:absolute; z-index:50; padding:2px 5px; border-radius:6px;
+    white-space:pre-wrap; overflow-wrap:break-word; line-height:1.35;
+    font-family:'Malgun Gothic','Apple SD Gothic Neo','Noto Sans KR',sans-serif;
+    border:1.5px solid transparent; max-width:94%; min-width:14px;
+    touch-action:none; -webkit-user-select:none; user-select:none; cursor:default;
+  }
+  .page-text.sel{ border-color:var(--accent); background:rgba(217,98,43,0.10); cursor:move; }
+  .page-text.editing{ border-color:var(--accent); background:rgba(255,255,255,0.94); min-width:130px; }
+  .page-text.dragging{ opacity:0.9; box-shadow:0 6px 18px rgba(0,0,0,0.28); }
+  .page-text textarea{
+    display:block; width:100%; border:none; outline:none; background:transparent; resize:none;
+    overflow:hidden; padding:0; margin:0; font:inherit; color:inherit; line-height:inherit;
+    white-space:pre-wrap; -webkit-user-select:text; user-select:text;
+  }
+  .txt-bar{
+    position:absolute; left:0; bottom:100%; margin-bottom:6px; z-index:62;
+    display:flex; align-items:center; gap:4px; padding:5px 8px; border-radius:999px;
+    background:rgba(30,30,34,0.93); box-shadow:var(--shadow); white-space:nowrap; cursor:default;
+  }
+  .txt-bar.below{ bottom:auto; top:100%; margin-bottom:0; margin-top:6px; }
+  .txt-bar button{
+    background:rgba(255,255,255,0.14); border:none; color:#fff; font-size:12px; font-weight:700;
+    padding:3px 8px; border-radius:999px; cursor:pointer; line-height:1.4; flex:0 0 auto;
+  }
+  .txt-bar button:active{ background:rgba(255,255,255,0.32); }
+  .txt-size{ color:#fff; font-size:11.5px; min-width:26px; text-align:center; flex:0 0 auto; }
+  .txt-sep{ width:1px; height:16px; background:rgba(255,255,255,0.28); flex:0 0 auto; margin:0 2px; }
+  .txt-sw{
+    width:16px; height:16px; border-radius:50%; border:1px solid rgba(255,255,255,0.5);
+    cursor:pointer; flex:0 0 auto; display:block;
+  }
+  .txt-sw.sel{ box-shadow:0 0 0 2px #fff; }
+
   .page-shortcut{
     position:absolute; z-index:56; width:40px; height:40px; border-radius:10px;
     background:rgba(255,255,255,0.95); border:1px solid rgba(0,0,0,0.15); box-shadow:0 3px 8px rgba(0,0,0,0.22);
@@ -2206,7 +2241,7 @@ async function zipBytes(zip, e){
   return new Uint8Array(await zip.file.slice(start, start + e.csize).arrayBuffer());
 }
 
-const BACKUP_SETTING_KEYS = ['notepen_folders','notepen_note_order','notepen_note_pins','notepen_note_favs','notepen_scratch_note','notepen_eraser_mode','notepen_hotkeys'];
+const BACKUP_SETTING_KEYS = ['notepen_folders','notepen_note_order','notepen_note_pins','notepen_note_favs','notepen_scratch_note','notepen_eraser_mode','notepen_hotkeys','notepen_text_style'];
 
 async function exportBackup(){
   const btn = document.getElementById('backup-export');
@@ -2594,6 +2629,7 @@ async function openNotebook(id, targetPage, targetShortcutId){
     pdfDoc = null;
     if(current.type==='pdf' && !PDFJS_AVAILABLE) toast('PDF 기능을 불러오지 못했어요. 인터넷 연결을 확인해주세요.');
   }
+  commitEditText(); clearTextSelection(); penTap = null; // 편집 중이던 글상자는 확정하고 상태를 정리
   if(pastingInk) setPastingInk(false); // 노트를 옮기면 '놓을 자리 고르기'는 취소
   libraryEl.style.display = 'none';
   editorEl.style.display = 'flex';
@@ -2891,6 +2927,8 @@ function buildBlockContent(block, idx){
   page.images.forEach(im=> block.appendChild(createImageElement(page, idx, im)));
   if(!page.shortcuts) page.shortcuts = [];
   page.shortcuts.forEach(sc=> block.appendChild(createShortcutElement(page, idx, sc)));
+  if(!page.texts) page.texts = [];
+  page.texts.forEach(tx=> block.appendChild(createTextElement(page, idx, tx)));
 }
 function ensureBlockBuilt(idx){
   const block = stackEl.querySelector(`.page-block[data-page-idx="${idx}"]`);
@@ -2951,12 +2989,16 @@ function appendPageBlock(idx){
 function rebuildPageBlock(idx){
   const block = stackEl.querySelector(`.page-block[data-page-idx="${idx}"]`);
   if(!block) return;
+  // 이 페이지를 통째로 다시 그리면 글상자 DOM도 새로 만들어지므로 편집/선택 참조를 버림
+  if(editingText && editingText.pageIdx === idx) editingText = null;
+  if(selectedText && selectedText.pageIdx === idx) selectedText = null;
   block.dataset.built = '0';
   buildBlockContent(block, idx);
   if(idx===0) updateThumbnailSoon();
 }
 function renderAllPages(){
   if(lazyObserver){ lazyObserver.disconnect(); lazyObserver = null; }
+  editingText = null; selectedText = null; penTap = null; // 화면을 새로 그리면 글상자 편집/선택 상태는 사라짐
   clearSelection(); // 페이지를 다시 그리면 선택 상자는 사라지므로 상태도 같이 정리
   stackEl.innerHTML = '';
   const maxW = Math.max(...current.pages.map(p=>p.width));
@@ -4338,6 +4380,9 @@ function onPointerDown(e){
     touchDownInfo = {x:e.clientX, y:e.clientY, t:Date.now()};
   }
 
+  // 글상자 밖을 누르면 편집을 끝내고 선택도 푼다 (글상자 자체는 pointerdown을 가로채므로 여기까지 안 옴)
+  if(editingText) commitEditText();
+  if(selectedText) clearTextSelection();
   activeAction = resolveAction(e);
   activePageIdx = pageIdxFromEvent(e);
   ensureBlockBuilt(activePageIdx); // 지연 렌더링으로 아직 안 그려진 페이지일 수 있으니 미리 채워둠
@@ -4604,9 +4649,14 @@ function onPointerUp(e){
   drawing = false;
   const layer = current.pages[activePageIdx].layers[activeLayerIdx];
   if((activeAction==='pen' || activeAction==='pencil' || activeAction==='highlight') && currentStroke){
+    const justDrawn = currentStroke;
     layer.strokes.push(currentStroke);
     currentStroke = null;
     highlightSnapshot = null;
+    // 펜으로 빠르게 두 번 톡톡 -> 그 자리에 텍스트 상자 (점 두 개는 지움)
+    if(e.pointerType === 'pen' && (activeAction === 'pen' || activeAction === 'pencil')){
+      if(handlePenTap(e, justDrawn, activePageIdx, activeLayerIdx)){ activeAction = null; scheduleSave(); return; }
+    }
   } else if(activeAction==='mask' && maskStart){
     const {x,y} = coordFromEvent(e);
     const rx = Math.min(maskStart.x,x), ry = Math.min(maskStart.y,y);
@@ -4630,7 +4680,7 @@ function onPointerUp(e){
    필기·도형(마스킹)·이미지가 통째로 선택됨. 선택 상자를 끌어 옮길 수 있고, 필기가 섞여 있으면
    색도 한 번에 바꿀 수 있음. 좌표계 주의: 필기·마스킹은 캔버스 px, 이미지는 CSS 페이지 px. */
 let lassoPath = null;   // 지금 그리고 있는 올가미 경로(캔버스 좌표)
-let selection = null;   // {pageIdx, strokes:[{layerIdx,stroke}], masks:[{layerIdx,mask}], images:[im], box:{x,y,w,h}(CSS px)}
+let selection = null;   // {pageIdx, strokes:[{layerIdx,stroke}], masks:[{layerIdx,mask}], images:[im], texts:[tx], box:{x,y,w,h}(CSS px)}
 let selBoxEl = null;
 function drawLassoPreview(ctx, pts){
   if(!ctx || pts.length < 2) return;
@@ -4665,10 +4715,18 @@ function clearSelection(){
   selection = null;
   if(selBoxEl){ selBoxEl.remove(); selBoxEl = null; }
 }
+// 텍스트 상자의 실제 크기는 글자 수·줄 수에 따라 달라지므로 화면에 그려진 요소에서 잰다(CSS 페이지 px).
+function textBoxSize(pageIdx, tx){
+  const el = stackEl.querySelector(`.page-block[data-page-idx="${pageIdx}"] .page-text[data-id="${tx.id}"]`);
+  if(el && el.offsetWidth) return { w: el.offsetWidth, h: el.offsetHeight };
+  const lines = String(tx.text || '').split('\n');
+  const longest = lines.reduce((a,l)=> Math.max(a, l.length), 1);
+  return { w: Math.max(20, longest * tx.size * 0.62), h: Math.max(tx.size, lines.length * tx.size * 1.35) };
+}
 function buildSelectionFromLasso(pageIdx, poly){
   const page = current && current.pages[pageIdx];
   if(!page) return;
-  const strokes = [], masks = [], images = [];
+  const strokes = [], masks = [], images = [], texts = [];
   let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity; // 캔버스 좌표 기준 경계
   page.layers.forEach((layer, li)=>{
     if(layer.visible === false) return;
@@ -4693,14 +4751,23 @@ function buildSelectionFromLasso(pageIdx, poly){
       x1=Math.max(x1,(im.x+im.w)*RES_SCALE); y1=Math.max(y1,(im.y+im.h)*RES_SCALE);
     }
   });
-  if(!strokes.length && !masks.length && !images.length){ toast('올가미 안에 선택할 게 없어요'); return; }
+  (page.texts || []).forEach(tx=>{
+    const sz = textBoxSize(pageIdx, tx);
+    if(rectHitsPoly(tx.x*RES_SCALE, tx.y*RES_SCALE, sz.w*RES_SCALE, sz.h*RES_SCALE, poly)){
+      texts.push(tx);
+      x0=Math.min(x0, tx.x*RES_SCALE); y0=Math.min(y0, tx.y*RES_SCALE);
+      x1=Math.max(x1,(tx.x+sz.w)*RES_SCALE); y1=Math.max(y1,(tx.y+sz.h)*RES_SCALE);
+    }
+  });
+  if(!strokes.length && !masks.length && !images.length && !texts.length){ toast('올가미 안에 선택할 게 없어요'); return; }
   const PAD = 6 * RES_SCALE;
   selection = {
-    pageIdx, strokes, masks, images,
+    pageIdx, strokes, masks, images, texts,
     box: { x:(x0-PAD)/RES_SCALE, y:(y0-PAD)/RES_SCALE, w:(x1-x0+PAD*2)/RES_SCALE, h:(y1-y0+PAD*2)/RES_SCALE }
   };
   showSelectionBox();
-  toast(selection.strokes.length + '개 필기 · ' + selection.masks.length + '개 도형 · ' + selection.images.length + '개 이미지 선택됨');
+  toast(selection.strokes.length + '개 필기 · ' + selection.masks.length + '개 도형 · '
+      + selection.images.length + '개 이미지 · ' + selection.texts.length + '개 글상자 선택됨');
 }
 function selectionSnapshot(){
   if(!selection) return;
@@ -4732,6 +4799,12 @@ function moveSelection(dxCss, dyCss){
     im.y = Math.max(0, Math.min(page.height - im.h, im.y + dyCss));
     const el = stackEl.querySelector(`.page-block[data-page-idx="${selection.pageIdx}"] .page-image[data-id="${im.id}"]`);
     if(el){ el.style.left = im.x + 'px'; el.style.top = im.y + 'px'; }
+  });
+  (selection.texts || []).forEach(tx=>{
+    tx.x = Math.max(0, Math.min(page.width - 10, tx.x + dxCss));
+    tx.y = Math.max(0, Math.min(page.height - 10, tx.y + dyCss));
+    const el = stackEl.querySelector(`.page-block[data-page-idx="${selection.pageIdx}"] .page-text[data-id="${tx.id}"]`);
+    if(el){ el.style.left = tx.x + 'px'; el.style.top = tx.y + 'px'; }
   });
   selection.box.x += dxCss; selection.box.y += dyCss;
   redrawSelectionLayers();
@@ -4819,6 +4892,293 @@ function showSelectionBox(){
   const wrapRect = wrapEl.getBoundingClientRect();
   if(barRect.top < wrapRect.top + 4) bar.classList.add('sel-bar-below');
 }
+/* ================= 텍스트 상자 (펜으로 두 번 톡톡) =================
+   펜으로 빈 곳을 빠르게 두 번 톡톡 치면 그 자리에 텍스트 상자가 생기고 바로 타자를 칠 수 있다.
+   상자 위 막대에서 글자 크기·색을 정한다. Enter = 입력 끝, Shift+Enter = 상자 안에서 줄바꿈.
+   입력을 끝낸 상자는 펜으로 눌러 고르고 그대로 끌어서 옮길 수 있다(두 번 누르면 다시 편집).
+   데이터는 page.texts = [{id, x, y, size, color, text}] — 좌표·크기는 CSS 페이지 px.
+   pages 전체가 pagesJson으로 동기화되므로 동기화 필드 목록은 손볼 필요 없음. */
+const TEXT_STYLE_KEY = 'notepen_text_style';
+const TEXT_SIZES = [12,14,16,18,20,24,28,32,40,48,60,72];
+let lastTextSize = 24, lastTextColor = '#1c1c1c';
+let editingText = null;   // {pageIdx, t, el, ta, isNew}
+let selectedText = null;  // {pageIdx, t, el}
+
+function loadTextStyle(){
+  try{
+    const o = JSON.parse(localStorage.getItem(TEXT_STYLE_KEY) || 'null');
+    if(o && TEXT_SIZES.indexOf(o.size) >= 0) lastTextSize = o.size;
+    if(o && typeof o.color === 'string' && /^#[0-9a-fA-F]{6}$/.test(o.color)) lastTextColor = o.color;
+  }catch(e){ /* 깨진 값은 무시 */ }
+}
+function saveTextStyle(){
+  try{ localStorage.setItem(TEXT_STYLE_KEY, JSON.stringify({size:lastTextSize, color:lastTextColor})); }catch(e){}
+}
+function applyTextStyle(el, tx){
+  el.style.left = tx.x + 'px';
+  el.style.top = tx.y + 'px';
+  el.style.fontSize = tx.size + 'px';
+  el.style.color = tx.color;
+}
+function textElOf(pageIdx, tx){
+  return stackEl.querySelector(`.page-block[data-page-idx="${pageIdx}"] .page-text[data-id="${tx.id}"]`);
+}
+function clearTextSelection(){
+  if(selectedText && selectedText.el){
+    selectedText.el.classList.remove('sel');
+    const bar = selectedText.el.querySelector('.txt-bar');
+    if(bar) bar.remove();
+  }
+  selectedText = null;
+}
+function selectText(pageIdx, tx){
+  clearTextSelection();
+  const el = textElOf(pageIdx, tx);
+  if(!el) return;
+  el.classList.add('sel');
+  el.appendChild(buildTextBar(pageIdx, tx, el, false));
+  selectedText = {pageIdx, t: tx, el};
+}
+function placeTextBar(bar){
+  // 상자가 페이지 맨 위에 붙어 있으면 막대가 화면 밖으로 나가므로 아래로 뒤집음
+  let r = bar.getBoundingClientRect();
+  const w = wrapEl.getBoundingClientRect();
+  if(r.top < w.top + 4) bar.classList.add('below');
+  // 막대가 색 스와치까지 들어가 꽤 넓어서 오른쪽으로 삐져나갈 수 있음 -> 화면 안으로 끌어당김
+  bar.style.transform = '';
+  r = bar.getBoundingClientRect();
+  const z = zoom || 1;
+  let shift = 0;
+  if(r.right > w.right - 6) shift = (w.right - 6 - r.right) / z;
+  if(r.left + shift * z < w.left + 6) shift = (w.left + 6 - r.left) / z;
+  if(shift) bar.style.transform = 'translateX(' + Math.round(shift) + 'px)';
+}
+function buildTextBar(pageIdx, tx, el, editing){
+  const bar = document.createElement('div');
+  bar.className = 'txt-bar';
+  bar.addEventListener('pointerdown', (e)=> e.stopPropagation());
+  const sizeLabel = document.createElement('span');
+  sizeLabel.className = 'txt-size';
+  const showSize = ()=>{ sizeLabel.textContent = tx.size; };
+  const mk = (label, title, fn)=>{
+    const b = document.createElement('button');
+    b.type='button'; b.textContent = label; b.title = title;
+    b.addEventListener('click', (e)=>{ e.stopPropagation(); fn(); });
+    return b;
+  };
+  const bumpSize = (dir)=>{
+    let i = TEXT_SIZES.indexOf(tx.size);
+    if(i < 0){ i = TEXT_SIZES.findIndex(s=> s >= tx.size); if(i < 0) i = TEXT_SIZES.length-1; }
+    i = Math.max(0, Math.min(TEXT_SIZES.length-1, i + dir));
+    tx.size = TEXT_SIZES[i];
+    lastTextSize = tx.size; saveTextStyle();
+    el.style.fontSize = tx.size + 'px';
+    showSize();
+    if(editingText && editingText.t === tx) autoGrowTextarea(editingText.ta);
+    scheduleSave();
+  };
+  bar.appendChild(mk('A−','글자 작게', ()=> bumpSize(-1)));
+  bar.appendChild(sizeLabel); showSize();
+  bar.appendChild(mk('A＋','글자 크게', ()=> bumpSize(1)));
+  const sep = document.createElement('span'); sep.className='txt-sep'; bar.appendChild(sep);
+  document.querySelectorAll('#color-group .swatch').forEach(sw=>{
+    const dot = document.createElement('span');
+    dot.className = 'txt-sw' + (sw.dataset.color === tx.color ? ' sel' : '');
+    dot.style.background = sw.dataset.color;
+    dot.title = (sw.title || '') + '으로';
+    dot.addEventListener('click', (e)=>{
+      e.stopPropagation();
+      tx.color = sw.dataset.color;
+      lastTextColor = tx.color; saveTextStyle();
+      el.style.color = tx.color;
+      bar.querySelectorAll('.txt-sw').forEach(d=> d.classList.toggle('sel', d.style.background === dot.style.background));
+      scheduleSave();
+    });
+    bar.appendChild(dot);
+  });
+  const sep2 = document.createElement('span'); sep2.className='txt-sep'; bar.appendChild(sep2);
+  if(editing){
+    bar.appendChild(mk('✓ 완료','입력 끝내기 (Enter)', ()=> commitEditText()));
+  } else {
+    bar.appendChild(mk('✎ 편집','글자 고치기', ()=> startEditText(pageIdx, tx, false)));
+  }
+  bar.appendChild(mk('🗑','이 글상자 지우기', ()=> deleteTextBox(pageIdx, tx)));
+  if(!editing) bar.appendChild(mk('✕','선택 해제', ()=> clearTextSelection()));
+  setTimeout(()=> placeTextBar(bar), 0);
+  return bar;
+}
+function autoGrowTextarea(ta){
+  if(!ta) return;
+  ta.style.height = 'auto';
+  ta.style.height = (ta.scrollHeight + 2) + 'px';
+}
+function deleteTextBox(pageIdx, tx){
+  const page = current && current.pages[pageIdx];
+  if(!page) return;
+  if(editingText && editingText.t === tx) editingText = null;
+  pushHistory(snapshotObjectsOnly(pageIdx));
+  page.texts = (page.texts || []).filter(x=> x.id !== tx.id);
+  clearTextSelection();
+  const el = textElOf(pageIdx, tx);
+  if(el) el.remove();
+  scheduleSave();
+  toast('글상자를 지웠어요');
+}
+function startEditText(pageIdx, tx, isNew){
+  commitEditText();
+  clearTextSelection();
+  ensureBlockBuilt(pageIdx);
+  const el = textElOf(pageIdx, tx);
+  if(!el) return;
+  if(!isNew) pushHistory(snapshotObjectsOnly(pageIdx)); // 새로 만든 건 만들 때 이미 기록함
+  el.classList.add('editing');
+  el.textContent = '';
+  const ta = document.createElement('textarea');
+  ta.value = tx.text || '';
+  ta.rows = 1;
+  ta.spellcheck = false;
+  el.appendChild(ta);
+  el.appendChild(buildTextBar(pageIdx, tx, el, true));
+  editingText = {pageIdx, t: tx, el, ta, isNew};
+  autoGrowTextarea(ta);
+  ta.addEventListener('input', ()=>{ tx.text = ta.value; autoGrowTextarea(ta); });
+  ta.addEventListener('pointerdown', (e)=> e.stopPropagation());
+  ta.addEventListener('keydown', (e)=>{
+    e.stopPropagation(); // 숫자 단축키 등 앱 전역 키로 새지 않게
+    // 한글 조합 중의 Enter는 글자를 확정하는 것이므로 입력을 끝내면 안 됨
+    if(e.isComposing || e.keyCode === 229) return;
+    if(e.key === 'Enter' && !e.shiftKey){ e.preventDefault(); commitEditText(); }
+    else if(e.key === 'Escape'){ e.preventDefault(); commitEditText(); }
+  });
+  setTimeout(()=>{ try{ ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); }catch(err){} }, 30);
+}
+function commitEditText(){
+  if(!editingText) return;
+  const info = editingText;
+  editingText = null;
+  const page = current && current.pages[info.pageIdx];
+  const text = (info.ta.value || '').replace(/\s+$/, '');
+  const el = info.el;
+  if(el) el.classList.remove('editing');
+  if(!text){
+    // 아무것도 안 쓴 상자는 남기지 않음
+    if(page) page.texts = (page.texts || []).filter(x=> x.id !== info.t.id);
+    if(el) el.remove();
+    scheduleSave();
+    return;
+  }
+  info.t.text = text;
+  if(el){
+    el.innerHTML = '';
+    el.textContent = text;
+    el.style.width = '';
+    applyTextStyle(el, info.t);
+  }
+  scheduleSave();
+  selectText(info.pageIdx, info.t); // 끝내자마자 고른 상태 -> 바로 끌어 옮길 수 있음
+}
+function createTextElement(page, pageIdx, tx){
+  const el = document.createElement('div');
+  el.className = 'page-text';
+  el.dataset.id = tx.id;
+  el.textContent = tx.text || '';
+  applyTextStyle(el, tx);
+  let downPt = null, downId = null, moved = false, snapped = false, origin = null, lastTapAt = 0;
+  el.addEventListener('pointerdown', (e)=>{
+    if(e.target.closest('.txt-bar') || e.target.tagName === 'TEXTAREA') return;
+    if(e.pointerType === 'touch') return;   // 손가락은 화면 넘기기용 — 글상자를 잡지 않음
+    if(editingText && editingText.t === tx) return;
+    e.stopPropagation();
+    e.preventDefault();
+    downId = e.pointerId;
+    downPt = {x:e.clientX, y:e.clientY};
+    origin = {x: tx.x, y: tx.y};
+    moved = false; snapped = false;
+    document.addEventListener('pointermove', onMove, {passive:false});
+    document.addEventListener('pointerup', onUp);
+    document.addEventListener('pointercancel', onUp);
+  });
+  function onMove(e){
+    if(e.pointerId !== downId) return;
+    e.preventDefault(); e.stopPropagation();
+    const dx = (e.clientX - downPt.x)/zoom, dy = (e.clientY - downPt.y)/zoom;
+    if(!moved && Math.hypot(e.clientX - downPt.x, e.clientY - downPt.y) < 4) return;
+    if(!moved){
+      moved = true;
+      el.classList.add('dragging');
+      if(!snapped){ pushHistory(snapshotObjectsOnly(pageIdx)); snapped = true; }
+    }
+    tx.x = Math.max(0, Math.min(page.width  - 10, origin.x + dx));
+    tx.y = Math.max(0, Math.min(page.height - 10, origin.y + dy));
+    el.style.left = tx.x + 'px';
+    el.style.top  = tx.y + 'px';
+  }
+  function onUp(e){
+    if(e.pointerId !== downId) return;
+    downId = null;
+    document.removeEventListener('pointermove', onMove);
+    document.removeEventListener('pointerup', onUp);
+    document.removeEventListener('pointercancel', onUp);
+    el.classList.remove('dragging');
+    if(moved){ scheduleSave(); moved = false; return; }
+    // 안 움직였으면 탭 — 고르기, 이미 고른 상태에서 다시 톡 치면 편집
+    const now = Date.now();
+    const already = selectedText && selectedText.t === tx;
+    if(already && (now - lastTapAt) < 500){ lastTapAt = 0; startEditText(pageIdx, tx, false); return; }
+    lastTapAt = now;
+    selectText(pageIdx, tx);
+  }
+  return el;
+}
+function createTextBoxAt(e){
+  const pageIdx = pageIdxFromEvent(e);
+  const block = stackEl.querySelector(`.page-block[data-page-idx="${pageIdx}"]`);
+  if(!block) return;
+  ensureBlockBuilt(pageIdx);
+  const page = current.pages[pageIdx];
+  if(!page.texts) page.texts = [];
+  const rect = block.getBoundingClientRect();
+  const x = Math.max(0, Math.min(Math.max(0, page.width  - 30), (e.clientX - rect.left)/zoom - 6));
+  const y = Math.max(0, Math.min(Math.max(0, page.height - 20), (e.clientY - rect.top )/zoom - lastTextSize*0.8));
+  pushHistory(snapshotObjectsOnly(pageIdx));
+  const tx = { id: 'txt_' + Date.now() + '_' + Math.random().toString(36).slice(2,6),
+               x, y, size: lastTextSize, color: lastTextColor, text: '' };
+  page.texts.push(tx);
+  block.appendChild(createTextElement(page, pageIdx, tx));
+  startEditText(pageIdx, tx, true);
+}
+/* 펜으로 두 번 톡톡 감지.
+   한 번 톡 칠 때마다 아주 작은 점 하나가 그려지므로, 두 번째를 인정하는 순간 그 점 두 개를 지운다. */
+let penTap = null; // {t, x, y, stroke, pageIdx, layerIdx}
+function isDotStroke(s){
+  if(!s || !s.points || !s.points.length) return false;
+  let x0=Infinity,y0=Infinity,x1=-Infinity,y1=-Infinity;
+  s.points.forEach(p=>{ x0=Math.min(x0,p.x); y0=Math.min(y0,p.y); x1=Math.max(x1,p.x); y1=Math.max(y1,p.y); });
+  return Math.max(x1-x0, y1-y0) < 10 * RES_SCALE;
+}
+function removeStrokeRef(ref){
+  if(!ref) return;
+  const page = current && current.pages[ref.pageIdx];
+  const layer = page && page.layers[ref.layerIdx];
+  if(!layer) return;
+  const i = layer.strokes.indexOf(ref.stroke);
+  if(i >= 0){ layer.strokes.splice(i,1); redrawLayerCanvas(ref.pageIdx, ref.layerIdx); }
+}
+function handlePenTap(e, stroke, pageIdx, layerIdx){
+  if(!isDotStroke(stroke)){ penTap = null; return false; }
+  const now = Date.now();
+  if(penTap && (now - penTap.t) < 450 && Math.hypot(penTap.x - e.clientX, penTap.y - e.clientY) < 40){
+    const first = penTap;
+    penTap = null;
+    removeStrokeRef(first);
+    removeStrokeRef({stroke, pageIdx, layerIdx});
+    createTextBoxAt(e);
+    return true;
+  }
+  penTap = {t: now, x: e.clientX, y: e.clientY, stroke, pageIdx, layerIdx};
+  return false;
+}
+
 /* ================= 올가미로 고른 것 복사·잘라내기·붙여넣기 =================
    올가미로 고른 필기·도형(마스킹)·이미지를 통째로 복사하거나 잘라내서, 툴바의 도장 버튼을 누른 뒤
    펜으로 탭한 자리에 붙여넣는다. 다른 쪽·다른 노트에도 붙일 수 있고, 앱을 다시 열어도 남아 있다.
@@ -4830,7 +5190,7 @@ let inkClip = null;
 let pastingInk = false;
 
 function inkClipEmpty(c){
-  return !c || !((c.strokes||[]).length || (c.masks||[]).length || (c.images||[]).length);
+  return !c || !((c.strokes||[]).length || (c.masks||[]).length || (c.images||[]).length || (c.texts||[]).length);
 }
 function loadInkClip(){
   try{
@@ -4860,13 +5220,22 @@ function setPastingInk(v){
 // 이미지 목록처럼 '페이지 위 개체' 전체를 되돌리기 기록에 담기 위한 헬퍼
 function currentObjects(pageIdx){
   const page = current && current.pages[pageIdx];
-  return { images: JSON.parse(JSON.stringify((page && page.images) || [])) };
+  return {
+    images: JSON.parse(JSON.stringify((page && page.images) || [])),
+    texts:  JSON.parse(JSON.stringify((page && page.texts)  || []))
+  };
 }
 function applyObjects(pageIdx, obj){
   const page = current && current.pages[pageIdx];
   if(!page || !obj) return;
   page.images = JSON.parse(JSON.stringify(obj.images || []));
+  // texts가 없는 옛 기록도 있으므로(이 기능 이전에 쌓인 것) 있을 때만 되돌림
+  if(obj.texts) page.texts = JSON.parse(JSON.stringify(obj.texts));
   rebuildPageBlock(pageIdx);
+}
+// 필기는 그대로 두고 '페이지 위 개체(이미지·텍스트 상자)'만 되돌리는 가벼운 기록
+function snapshotObjectsOnly(pageIdx){
+  return { pageIdx, layerIdx: 0, objectsOnly: true, objects: currentObjects(pageIdx) };
 }
 // 여러 레이어 + 이미지가 한꺼번에 바뀌는 작업(붙여넣기·잘라내기)을 되돌리기 한 번으로 되돌리기 위한 기록
 function snapshotPage(pageIdx){
@@ -4885,7 +5254,7 @@ function copySelection(cut){
   if(!selection){ toast('먼저 올가미로 고르세요'); return; }
   const box = selection.box;                       // CSS 페이지 px
   const ox = box.x * RES_SCALE, oy = box.y * RES_SCALE; // 캔버스 px 기준점
-  const clip = { strokes: [], masks: [], images: [], w: box.w, h: box.h };
+  const clip = { strokes: [], masks: [], images: [], texts: [], w: box.w, h: box.h };
   selection.strokes.forEach(({stroke})=>{
     const s = JSON.parse(JSON.stringify(stroke));
     s.points = s.points.map(p=> Object.assign({}, p, {x: p.x - ox, y: p.y - oy}));
@@ -4901,10 +5270,15 @@ function copySelection(cut){
     i.x -= box.x; i.y -= box.y;
     clip.images.push(i);
   });
+  (selection.texts || []).forEach(tx=>{
+    const x = JSON.parse(JSON.stringify(tx));
+    x.x -= box.x; x.y -= box.y;
+    clip.texts.push(x);
+  });
   inkClip = clip;
   saveInkClip();
   updateInkPasteBtn();
-  const n = clip.strokes.length + clip.masks.length + clip.images.length;
+  const n = clip.strokes.length + clip.masks.length + clip.images.length + clip.texts.length;
   if(cut) deleteSelectionContents();
   else clearSelection();
   toast(n + '개를 ' + (cut ? '잘라냈어요' : '복사했어요') + ' · 도장 버튼을 누른 뒤 놓을 자리를 탭하세요');
@@ -4917,16 +5291,19 @@ function deleteSelectionContents(){
   const rmS = new Set(selection.strokes.map(s=> s.stroke));
   const rmM = new Set(selection.masks.map(m=> m.mask));
   const rmI = new Set(selection.images.map(i=> i.id));
+  const rmT = new Set((selection.texts || []).map(x=> x.id));
   page.layers.forEach(L=>{
     L.strokes = (L.strokes || []).filter(s=> !rmS.has(s));
     L.masks   = (L.masks   || []).filter(m=> !rmM.has(m));
   });
   if(page.images) page.images = page.images.filter(i=> !rmI.has(i.id));
+  if(page.texts)  page.texts  = page.texts.filter(x=> !rmT.has(x.id));
   clearSelection();
   rebuildPageBlock(pageIdx);
   scheduleSave();
 }
 function pasteInkAt(e){
+  commitEditText();
   if(inkClipEmpty(inkClip)){ setPastingInk(false); return; }
   const pageIdx = pageIdxFromEvent(e);
   const block = stackEl.querySelector(`.page-block[data-page-idx="${pageIdx}"]`);
@@ -4960,6 +5337,14 @@ function pasteInkAt(e){
     im.y = Math.max(0, Math.min(Math.max(0, page.height - im.h), i0.y + by));
     page.images.push(im);
   });
+  if(!page.texts) page.texts = [];
+  (inkClip.texts || []).forEach(t0=>{
+    const tx = JSON.parse(JSON.stringify(t0));
+    tx.id = 'txt_' + Date.now() + '_' + Math.random().toString(36).slice(2,6);
+    tx.x = Math.max(0, Math.min(Math.max(0, page.width  - 10), t0.x + bx));
+    tx.y = Math.max(0, Math.min(Math.max(0, page.height - 10), t0.y + by));
+    page.texts.push(tx);
+  });
   rebuildPageBlock(pageIdx);
   scheduleSave();
   setPastingInk(false);
@@ -4992,6 +5377,7 @@ document.querySelectorAll('[data-tool]:not([data-tool="eraser"])').forEach(btn=>
   btn.addEventListener('click', ()=>{
     if(btn.dataset.tool !== 'lasso') clearSelection(); // 다른 도구로 바꾸면 선택은 풀림
     if(pastingInk) setPastingInk(false);                // 붙여넣을 자리를 고르던 중이었다면 취소
+    commitEditText(); clearTextSelection();             // 글상자 편집/선택도 정리
     tool = btn.dataset.tool;
     document.querySelectorAll('[data-tool]').forEach(b=>b.classList.toggle('active', b===btn));
     stackEl.style.cursor = tool==='pan' ? 'grab' : 'crosshair';
@@ -5649,9 +6035,15 @@ function applyHistorySnap(snap){
   const page = current && current.pages[snap.pageIdx];
   if(!page) return null;
   const wide = !!(snap.allLayers || snap.objects);
-  if(!wide && !page.layers[snap.layerIdx]) return null;
-  if(wide) clearSelection(); // 필기 객체가 통째로 바뀌므로 선택 상자는 더 이상 유효하지 않음
-  const inverse = snapshotLayer(snap.pageIdx, snap.layerIdx);
+  if(!snap.objectsOnly && !snap.allLayers && !page.layers[snap.layerIdx]) return null;
+  if(wide){
+    commitEditText();      // 편집 중인 텍스트 상자가 있으면 먼저 확정(곧 다시 그려지므로)
+    clearTextSelection();
+    clearSelection();      // 필기 객체가 통째로 바뀌므로 선택 상자는 더 이상 유효하지 않음
+  }
+  const inverse = snap.objectsOnly
+    ? { pageIdx: snap.pageIdx, layerIdx: snap.layerIdx, objectsOnly: true }
+    : snapshotLayer(snap.pageIdx, snap.layerIdx);
   if(snap.imageGeom) inverse.imageGeom = currentImageGeom(snap.pageIdx);
   if(snap.allLayers) inverse.allLayers = page.layers.map((L, li)=> ({
     layerIdx: li,
@@ -5659,7 +6051,9 @@ function applyHistorySnap(snap){
     masks: JSON.parse(JSON.stringify(L.masks))
   }));
   if(snap.objects) inverse.objects = currentObjects(snap.pageIdx);
-  if(snap.allLayers){
+  if(snap.objectsOnly){
+    // 필기는 손대지 않음 — 개체(이미지·텍스트 상자)만 되돌림
+  } else if(snap.allLayers){
     snap.allLayers.forEach(L=>{
       const target = page.layers[L.layerIdx];
       if(target){ target.strokes = L.strokes; target.masks = L.masks; }
@@ -5670,6 +6064,7 @@ function applyHistorySnap(snap){
   }
   if(snap.objects) applyObjects(snap.pageIdx, snap.objects); // 안에서 rebuildPageBlock까지 함
   else if(snap.allLayers) rebuildPageBlock(snap.pageIdx);
+  else if(snap.objectsOnly){ /* 되돌릴 개체 기록이 없으면 할 일 없음 */ }
   else {
     if(snap.imageGeom) applyImageGeom(snap.pageIdx, snap.imageGeom); // 이미지 위치도 같이 되돌림
     redrawLayerCanvas(snap.pageIdx, snap.layerIdx);
@@ -5870,6 +6265,7 @@ qmLoad();
 refreshLibrary();
 initStorageSafety(); // 브라우저가 노트를 함부로 지우지 못하게 영구 저장 권한을 요청
 loadInkClip();       // 지난번에 올가미로 복사해둔 것이 있으면 되살림(앱을 다시 열어도 붙여넣을 수 있게)
+loadTextStyle();     // 마지막으로 쓴 글자 크기·색 (새 버전을 받아도 그대로 유지)
 </script>
 </body>
 </html>
