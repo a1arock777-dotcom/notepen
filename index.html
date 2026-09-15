@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>NotePen</title>
-<!-- build: 2026-09-15e (숫자 단축키 1~0 · Tab으로 이전 노트) -->
+<!-- build: 2026-09-15f (올가미 복사·잘라내기·붙여넣기) -->
 <style>
   :root{
     --bg: #f4f3f1;
@@ -562,6 +562,15 @@
     background:transparent; border:none; color:#fff; font-size:14px; cursor:pointer;
     padding:0 2px 0 6px; margin-left:2px; border-left:1px solid rgba(255,255,255,0.3);
   }
+  /* 선택 막대의 복사·잘라내기 버튼 */
+  .sel-act{
+    background:rgba(255,255,255,0.14); border:none; color:#fff; font-size:11.5px; font-weight:700;
+    padding:4px 9px; border-radius:999px; cursor:pointer; flex:0 0 auto; line-height:1.3;
+  }
+  .sel-act:active{ background:rgba(255,255,255,0.3); }
+  /* 선택 영역이 화면 맨 위에 붙어 있으면 막대가 화면 밖으로 나가므로 아래쪽으로 뒤집음 */
+  .sel-bar.sel-bar-below{ bottom:auto; top:100%; margin-bottom:0; margin-top:7px; }
+  .sel-act + .sel-sw{ margin-left:3px; }
   .page-shortcut.flash{ animation: shortcutFlash 1s ease-in-out 2; }
   @keyframes shortcutFlash{
     0%, 100% { box-shadow:0 3px 8px rgba(0,0,0,0.22); transform:scale(1); }
@@ -952,6 +961,7 @@
         <button class="icon-btn" data-tool="highlight" title="형광펜"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><g transform="rotate(38 12 12)"><rect x="7.2" y="1.4" width="9.6" height="14.6" rx="2.6" fill="#ffd21e" stroke="#151515" stroke-width="1.6"/><rect x="9.7" y="4.4" width="4.6" height="8.6" rx="2" fill="#c9cdd2" stroke="#151515" stroke-width="1.2"/><path d="M7.2 16h9.6l-2.9 5.4h-3.8z" fill="#c2c6cb" stroke="#151515" stroke-width="1.6" stroke-linejoin="round"/></g></svg></button>
         <button class="icon-btn" data-tool="mask" title="도형(가리기·마스킹)"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><rect x="2.4" y="2.4" width="11.2" height="11.2" rx="1.8"/><circle cx="16.2" cy="16.2" r="5.4"/></g></svg></button>
         <button class="icon-btn" data-tool="lasso" title="올가미 선택 — 둘러 그으면 그 안의 필기·도형·이미지가 통째로 선택돼요">◌</button>
+        <button class="icon-btn" id="btn-ink-paste" title="올가미로 복사한 것 붙여넣기 — 누른 뒤 놓을 자리를 탭하세요" style="display:none;"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><rect x="2.6" y="2.6" width="12" height="12" rx="2"/><rect x="9.4" y="9.4" width="12" height="12" rx="2" fill="var(--surface)"/></g><path d="M15.4 13v5M12.9 15.5h5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button>
       </div>
       <button class="icon-btn" id="btn-paste" title="붙여넣기 — 복사한 글자·이미지 기록에서 고르기"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M8.4 3.6H5.4A1.6 1.6 0 0 0 3.8 5.2v15.2A1.6 1.6 0 0 0 5.4 22h13.2a1.6 1.6 0 0 0 1.6-1.6V5.2a1.6 1.6 0 0 0-1.6-1.6h-3" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"/><rect x="8.2" y="1.7" width="7.6" height="3.8" rx="1.3" fill="currentColor"/><path d="M7.2 9.6h9.6M7.2 12.8h9.6M7.2 16h9.6" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg></button>
       <div class="divider"></div>
@@ -2584,6 +2594,7 @@ async function openNotebook(id, targetPage, targetShortcutId){
     pdfDoc = null;
     if(current.type==='pdf' && !PDFJS_AVAILABLE) toast('PDF 기능을 불러오지 못했어요. 인터넷 연결을 확인해주세요.');
   }
+  if(pastingInk) setPastingInk(false); // 노트를 옮기면 '놓을 자리 고르기'는 취소
   libraryEl.style.display = 'none';
   editorEl.style.display = 'flex';
   fitZoomToWidth(); // 열자마자 폭 맞춤 상태로
@@ -2696,6 +2707,19 @@ async function jumpToPrevNote(){
   }
 }
 document.addEventListener('keydown', (e)=>{
+  // 올가미 선택 복사·잘라내기·붙여넣기 (키보드를 쓸 때만; 입력칸에 있을 땐 브라우저 기본 동작이 우선)
+  if((e.ctrlKey || e.metaKey) && !e.altKey && inNoteView() && !hotkeyInputBusy() && !hotkeyPopupOpen()){
+    const k = (e.key || '').toLowerCase();
+    if(k === 'c' && selection){ e.preventDefault(); copySelection(false); return; }
+    if(k === 'x' && selection){ e.preventDefault(); copySelection(true);  return; }
+    if(k === 'v' && !inkClipEmpty(inkClip)){
+      e.preventDefault();
+      if(placingShortcut) setPlacingShortcut(false);
+      setPastingInk(true);
+      toast('놓을 자리를 펜으로 탭하세요');
+      return;
+    }
+  }
   if(e.ctrlKey || e.metaKey || e.altKey) return;
   if(e.isComposing || e.keyCode === 229) return; // 한글 조합 중
   if(hotkeyInputBusy() || hotkeyPopupOpen()) return;
@@ -4286,6 +4310,11 @@ function onPointerDown(e){
     placeShortcutAt(e);
     return;
   }
+  if(pastingInk){
+    e.preventDefault();
+    pasteInkAt(e);
+    return;
+  }
   activePointers.set(e.pointerId, {x:e.clientX, y:e.clientY, type:e.pointerType});
 
   const tEntries = touchEntries();
@@ -4729,6 +4758,14 @@ function showSelectionBox(){
   box.style.height = selection.box.h + 'px';
   const bar = document.createElement('div');
   bar.className = 'sel-bar';
+  // 복사·잘라내기 (색 스와치보다 앞에 둠 — 가장 자주 쓰는 동작)
+  [['복사','선택한 것을 복사', false], ['잘라내기','선택한 것을 잘라내기', true]].forEach(([label, tip, cut])=>{
+    const b = document.createElement('button');
+    b.type = 'button'; b.className = 'sel-act'; b.textContent = label; b.title = tip;
+    b.addEventListener('pointerdown', (e)=> e.stopPropagation());
+    b.addEventListener('click', (e)=>{ e.stopPropagation(); copySelection(cut); });
+    bar.appendChild(b);
+  });
   if(selection.strokes.length){
     document.querySelectorAll('#color-group .swatch').forEach(sw=>{
       const dot = document.createElement('span');
@@ -4777,7 +4814,164 @@ function showSelectionBox(){
   });
   block.appendChild(box);
   selBoxEl = box;
+  // 고른 영역이 화면 위쪽에 바짝 붙어 있으면 막대가 화면 밖으로 잘리므로 상자 아래로 내림
+  const barRect = bar.getBoundingClientRect();
+  const wrapRect = wrapEl.getBoundingClientRect();
+  if(barRect.top < wrapRect.top + 4) bar.classList.add('sel-bar-below');
 }
+/* ================= 올가미로 고른 것 복사·잘라내기·붙여넣기 =================
+   올가미로 고른 필기·도형(마스킹)·이미지를 통째로 복사하거나 잘라내서, 툴바의 도장 버튼을 누른 뒤
+   펜으로 탭한 자리에 붙여넣는다. 다른 쪽·다른 노트에도 붙일 수 있고, 앱을 다시 열어도 남아 있다.
+   좌표계 주의: 필기·마스킹은 캔버스 px(CSS px x RES_SCALE), 이미지는 CSS 페이지 px.
+   클립보드 안에서는 모든 좌표를 '고른 영역의 왼쪽 위'를 (0,0)으로 한 상대값으로 저장한다. */
+const INK_CLIP_KEY = 'notepen_ink_clip';
+const INK_CLIP_MAX = 1500000; // 이보다 크면(큰 이미지 등) localStorage에 안 넣고 이번 세션 메모리에만 둠
+let inkClip = null;
+let pastingInk = false;
+
+function inkClipEmpty(c){
+  return !c || !((c.strokes||[]).length || (c.masks||[]).length || (c.images||[]).length);
+}
+function loadInkClip(){
+  try{
+    const o = JSON.parse(localStorage.getItem(INK_CLIP_KEY) || 'null');
+    if(!inkClipEmpty(o)) inkClip = o;
+  }catch(e){ /* 깨진 값은 무시 */ }
+  updateInkPasteBtn();
+}
+function saveInkClip(){
+  try{
+    if(inkClipEmpty(inkClip)){ localStorage.removeItem(INK_CLIP_KEY); return; }
+    const s = JSON.stringify(inkClip);
+    if(s.length <= INK_CLIP_MAX) localStorage.setItem(INK_CLIP_KEY, s);
+    else localStorage.removeItem(INK_CLIP_KEY);
+  }catch(e){ /* 저장 실패(용량 초과 등)는 무시 — 메모리에는 남아 있음 */ }
+}
+function updateInkPasteBtn(){
+  const b = document.getElementById('btn-ink-paste');
+  if(b) b.style.display = inkClipEmpty(inkClip) ? 'none' : 'flex';
+}
+function setPastingInk(v){
+  pastingInk = v;
+  const b = document.getElementById('btn-ink-paste');
+  if(b) b.classList.toggle('active', v);
+  stackEl.style.cursor = v ? 'copy' : (tool==='pan' ? 'grab' : 'crosshair');
+}
+// 이미지 목록처럼 '페이지 위 개체' 전체를 되돌리기 기록에 담기 위한 헬퍼
+function currentObjects(pageIdx){
+  const page = current && current.pages[pageIdx];
+  return { images: JSON.parse(JSON.stringify((page && page.images) || [])) };
+}
+function applyObjects(pageIdx, obj){
+  const page = current && current.pages[pageIdx];
+  if(!page || !obj) return;
+  page.images = JSON.parse(JSON.stringify(obj.images || []));
+  rebuildPageBlock(pageIdx);
+}
+// 여러 레이어 + 이미지가 한꺼번에 바뀌는 작업(붙여넣기·잘라내기)을 되돌리기 한 번으로 되돌리기 위한 기록
+function snapshotPage(pageIdx){
+  const page = current.pages[pageIdx];
+  const base = snapshotLayer(pageIdx, 0);
+  base.allLayers = page.layers.map((L, li)=> ({
+    layerIdx: li,
+    strokes: JSON.parse(JSON.stringify(L.strokes)),
+    masks: JSON.parse(JSON.stringify(L.masks))
+  }));
+  base.objects = currentObjects(pageIdx);
+  return base;
+}
+
+function copySelection(cut){
+  if(!selection){ toast('먼저 올가미로 고르세요'); return; }
+  const box = selection.box;                       // CSS 페이지 px
+  const ox = box.x * RES_SCALE, oy = box.y * RES_SCALE; // 캔버스 px 기준점
+  const clip = { strokes: [], masks: [], images: [], w: box.w, h: box.h };
+  selection.strokes.forEach(({stroke})=>{
+    const s = JSON.parse(JSON.stringify(stroke));
+    s.points = s.points.map(p=> Object.assign({}, p, {x: p.x - ox, y: p.y - oy}));
+    clip.strokes.push(s);
+  });
+  selection.masks.forEach(({mask})=>{
+    const m = JSON.parse(JSON.stringify(mask));
+    m.x -= ox; m.y -= oy;
+    clip.masks.push(m);
+  });
+  selection.images.forEach(im=>{
+    const i = JSON.parse(JSON.stringify(im));
+    i.x -= box.x; i.y -= box.y;
+    clip.images.push(i);
+  });
+  inkClip = clip;
+  saveInkClip();
+  updateInkPasteBtn();
+  const n = clip.strokes.length + clip.masks.length + clip.images.length;
+  if(cut) deleteSelectionContents();
+  else clearSelection();
+  toast(n + '개를 ' + (cut ? '잘라냈어요' : '복사했어요') + ' · 도장 버튼을 누른 뒤 놓을 자리를 탭하세요');
+}
+function deleteSelectionContents(){
+  if(!selection) return;
+  const pageIdx = selection.pageIdx;
+  const page = current.pages[pageIdx];
+  pushHistory(snapshotPage(pageIdx));
+  const rmS = new Set(selection.strokes.map(s=> s.stroke));
+  const rmM = new Set(selection.masks.map(m=> m.mask));
+  const rmI = new Set(selection.images.map(i=> i.id));
+  page.layers.forEach(L=>{
+    L.strokes = (L.strokes || []).filter(s=> !rmS.has(s));
+    L.masks   = (L.masks   || []).filter(m=> !rmM.has(m));
+  });
+  if(page.images) page.images = page.images.filter(i=> !rmI.has(i.id));
+  clearSelection();
+  rebuildPageBlock(pageIdx);
+  scheduleSave();
+}
+function pasteInkAt(e){
+  if(inkClipEmpty(inkClip)){ setPastingInk(false); return; }
+  const pageIdx = pageIdxFromEvent(e);
+  const block = stackEl.querySelector(`.page-block[data-page-idx="${pageIdx}"]`);
+  if(!block){ setPastingInk(false); return; }
+  ensureBlockBuilt(pageIdx);
+  const page = current.pages[pageIdx];
+  const rect = block.getBoundingClientRect();
+  // 탭한 자리가 붙여넣는 내용의 한가운데가 되게 함
+  const limX = Math.max(0, page.width  - (inkClip.w || 0));
+  const limY = Math.max(0, page.height - (inkClip.h || 0));
+  const bx = Math.max(0, Math.min(limX, (e.clientX - rect.left)/zoom - (inkClip.w || 0)/2));
+  const by = Math.max(0, Math.min(limY, (e.clientY - rect.top )/zoom - (inkClip.h || 0)/2));
+  pushHistory(snapshotPage(pageIdx));
+  const ox = bx * RES_SCALE, oy = by * RES_SCALE;
+  const layer = page.layers[activeLayerIdx] || page.layers[0];
+  (inkClip.strokes || []).forEach(s0=>{
+    const s = JSON.parse(JSON.stringify(s0));
+    s.points = (s.points || []).map(p=> Object.assign({}, p, {x: p.x + ox, y: p.y + oy}));
+    layer.strokes.push(s);
+  });
+  (inkClip.masks || []).forEach(m0=>{
+    const m = JSON.parse(JSON.stringify(m0));
+    m.x += ox; m.y += oy;
+    layer.masks.push(m);
+  });
+  if(!page.images) page.images = [];
+  (inkClip.images || []).forEach(i0=>{
+    const im = JSON.parse(JSON.stringify(i0));
+    im.id = 'img_' + Date.now() + '_' + Math.random().toString(36).slice(2,6);
+    im.x = Math.max(0, Math.min(Math.max(0, page.width  - im.w), i0.x + bx));
+    im.y = Math.max(0, Math.min(Math.max(0, page.height - im.h), i0.y + by));
+    page.images.push(im);
+  });
+  rebuildPageBlock(pageIdx);
+  scheduleSave();
+  setPastingInk(false);
+  toast('붙여넣었어요');
+}
+document.getElementById('btn-ink-paste').addEventListener('click', ()=>{
+  if(inkClipEmpty(inkClip)){ toast('복사한 게 없어요. 올가미(◌)로 고른 뒤 복사를 누르세요'); return; }
+  if(placingShortcut) setPlacingShortcut(false);
+  setPastingInk(!pastingInk);
+  if(pastingInk) toast('놓을 자리를 펜으로 탭하세요');
+});
+
 function eraseAt(x,y){
   const layer = current.pages[activePageIdx].layers[activeLayerIdx];
   const R = 14 * RES_SCALE;
@@ -4797,6 +4991,7 @@ function updateToolUI(){
 document.querySelectorAll('[data-tool]:not([data-tool="eraser"])').forEach(btn=>{
   btn.addEventListener('click', ()=>{
     if(btn.dataset.tool !== 'lasso') clearSelection(); // 다른 도구로 바꾸면 선택은 풀림
+    if(pastingInk) setPastingInk(false);                // 붙여넣을 자리를 고르던 중이었다면 취소
     tool = btn.dataset.tool;
     document.querySelectorAll('[data-tool]').forEach(b=>b.classList.toggle('active', b===btn));
     stackEl.style.cursor = tool==='pan' ? 'grab' : 'crosshair';
@@ -5447,22 +5642,50 @@ document.getElementById('btn-zoom-in').onclick = ()=>{ zoom = Math.min(10, zoom 
 document.getElementById('btn-zoom-out').onclick = ()=>{ zoom = Math.max(0.4, zoom-0.15); stackEl.style.transform = `scale(${zoom})`; centerIfFits(); };
 
 // 되돌리기 본체. 되돌리기 버튼과 두 손가락 '톡' 제스처가 함께 사용함(showToast=true면 결과를 토스트로 알려줌).
+// 되돌리기·다시하기가 공통으로 쓰는 적용 함수.
+// snap을 데이터와 화면에 반영하고, 그 '직전 상태'를 담은 반대 방향 기록을 돌려준다(못 하면 null).
+// snap 종류: (기본) 한 레이어 / imageGeom = 이미지 위치까지 / allLayers·objects = 페이지 통째(붙여넣기·잘라내기)
+function applyHistorySnap(snap){
+  const page = current && current.pages[snap.pageIdx];
+  if(!page) return null;
+  const wide = !!(snap.allLayers || snap.objects);
+  if(!wide && !page.layers[snap.layerIdx]) return null;
+  if(wide) clearSelection(); // 필기 객체가 통째로 바뀌므로 선택 상자는 더 이상 유효하지 않음
+  const inverse = snapshotLayer(snap.pageIdx, snap.layerIdx);
+  if(snap.imageGeom) inverse.imageGeom = currentImageGeom(snap.pageIdx);
+  if(snap.allLayers) inverse.allLayers = page.layers.map((L, li)=> ({
+    layerIdx: li,
+    strokes: JSON.parse(JSON.stringify(L.strokes)),
+    masks: JSON.parse(JSON.stringify(L.masks))
+  }));
+  if(snap.objects) inverse.objects = currentObjects(snap.pageIdx);
+  if(snap.allLayers){
+    snap.allLayers.forEach(L=>{
+      const target = page.layers[L.layerIdx];
+      if(target){ target.strokes = L.strokes; target.masks = L.masks; }
+    });
+  } else {
+    const layer = page.layers[snap.layerIdx];
+    layer.strokes = snap.strokes; layer.masks = snap.masks;
+  }
+  if(snap.objects) applyObjects(snap.pageIdx, snap.objects); // 안에서 rebuildPageBlock까지 함
+  else if(snap.allLayers) rebuildPageBlock(snap.pageIdx);
+  else {
+    if(snap.imageGeom) applyImageGeom(snap.pageIdx, snap.imageGeom); // 이미지 위치도 같이 되돌림
+    redrawLayerCanvas(snap.pageIdx, snap.layerIdx);
+  }
+  scheduleSave();
+  return inverse;
+}
 function doUndo(showToast){
   const snap = history.pop();
   if(!snap){
     if(showToast) toast('되돌릴 작업이 없어요');
     return false;
   }
-  const page = current && current.pages[snap.pageIdx];
-  const layer = page && page.layers[snap.layerIdx];
-  if(!layer) return false;
-  const redoSnap = snapshotLayer(snap.pageIdx, snap.layerIdx);
-  if(snap.imageGeom) redoSnap.imageGeom = currentImageGeom(snap.pageIdx);
-  redoStack.push(redoSnap);
-  layer.strokes = snap.strokes; layer.masks = snap.masks;
-  if(snap.imageGeom) applyImageGeom(snap.pageIdx, snap.imageGeom); // 이미지도 같이 되돌림
-  redrawLayerCanvas(snap.pageIdx, snap.layerIdx);
-  scheduleSave();
+  const inverse = applyHistorySnap(snap);
+  if(!inverse) return false;
+  redoStack.push(inverse);
   if(showToast) toast('되돌렸어요');
   return true;
 }
@@ -5470,14 +5693,8 @@ document.getElementById('btn-undo').onclick = ()=> doUndo(false);
 document.getElementById('btn-redo').onclick = ()=>{
   const snap = redoStack.pop();
   if(!snap) return;
-  const layer = current.pages[snap.pageIdx].layers[snap.layerIdx];
-  const undoSnap = snapshotLayer(snap.pageIdx, snap.layerIdx);
-  if(snap.imageGeom) undoSnap.imageGeom = currentImageGeom(snap.pageIdx);
-  history.push(undoSnap);
-  layer.strokes = snap.strokes; layer.masks = snap.masks;
-  if(snap.imageGeom) applyImageGeom(snap.pageIdx, snap.imageGeom); // 이미지도 같이 다시 실행
-  redrawLayerCanvas(snap.pageIdx, snap.layerIdx);
-  scheduleSave();
+  const inverse = applyHistorySnap(snap);
+  if(inverse) history.push(inverse);
 };
 
 /* ================= Layers panel ================= */
@@ -5652,6 +5869,7 @@ qmLoad();
 /* ================= Init ================= */
 refreshLibrary();
 initStorageSafety(); // 브라우저가 노트를 함부로 지우지 못하게 영구 저장 권한을 요청
+loadInkClip();       // 지난번에 올가미로 복사해둔 것이 있으면 되살림(앱을 다시 열어도 붙여넣을 수 있게)
 </script>
 </body>
 </html>
