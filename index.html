@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>NotePen</title>
-<!-- build: 2026-09-15d (툴바 아이콘 5종 교체) -->
+<!-- build: 2026-09-15e (숫자 단축키 1~0 · Tab으로 이전 노트) -->
 <style>
   :root{
     --bg: #f4f3f1;
@@ -122,6 +122,13 @@
     font-size:9.5px; cursor:pointer; padding:0 3px;
   }
   .card-sync-btn.off{ background:rgba(192,57,43,0.85); }
+  /* 숫자 단축키가 지정된 노트 표시 (썸네일 왼쪽 아래) */
+  .card-hotkey{
+    position:absolute; bottom:4px; left:4px; min-width:18px; height:18px; border-radius:6px;
+    background:var(--accent); color:#fff; display:flex; align-items:center; justify-content:center;
+    font-size:11px; font-weight:800; padding:0 4px; pointer-events:none;
+    box-shadow:0 1px 4px rgba(0,0,0,0.3);
+  }
   /* 상단 고정 토글 (라이브러리 카드) */
   .card-pin-btn{
     position:absolute; top:4px; right:28px; min-width:20px; height:20px; border-radius:50%;
@@ -609,6 +616,34 @@
     color:var(--text); font-size:12.5px; font-weight:600; cursor:pointer;
   }
 
+  /* ---------- 숫자 단축키 설정 ---------- */
+  .hk-row{
+    display:flex; align-items:center; gap:9px; padding:8px 9px; border-radius:10px;
+    border:1px solid var(--border); background:var(--surface-2); margin-bottom:6px; cursor:pointer;
+  }
+  .hk-row .hk-num{
+    flex:0 0 auto; width:24px; height:24px; border-radius:7px; background:var(--accent); color:#fff;
+    display:flex; align-items:center; justify-content:center; font-size:12.5px; font-weight:800;
+  }
+  .hk-row.hk-empty .hk-num{ background:var(--border); color:var(--text-dim); }
+  .hk-row .hk-name{
+    flex:1 1 auto; font-size:12.5px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  }
+  .hk-row.hk-empty .hk-name{ font-weight:400; color:var(--text-dim); }
+  .hk-row .hk-clear{
+    flex:0 0 auto; background:transparent; border:none; color:var(--text-dim);
+    font-size:13px; cursor:pointer; width:22px; padding:0;
+  }
+  .hk-pick-item{
+    display:flex; align-items:center; gap:8px; padding:9px 10px; border-radius:10px;
+    border:1px solid var(--border); background:var(--surface-2); margin-bottom:6px;
+    font-size:12.5px; font-weight:600; cursor:pointer;
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  }
+  .hk-pick-item.sel{ border-color:var(--accent); }
+  .hk-scroll{ max-height:46vh; overflow-y:auto; margin-bottom:10px; }
+  .hk-hint{ font-size:11.5px; color:var(--text-dim); line-height:1.55; margin:0 0 12px; }
+
   .hidden-input{ display:none; }
   .toast{
     position:fixed; bottom:26px; left:50%; transform:translateX(-50%); background:rgba(0,0,0,0.8); color:white;
@@ -630,6 +665,7 @@
       <div style="display:flex; align-items:center;">
         <button class="icon-btn" id="btn-sync" title="기기 간 동기화 설정" style="width:44px;height:44px;border-radius:50%;background:var(--surface);border:1px solid var(--border);margin-right:8px;">☁️</button>
         <button class="icon-btn" id="btn-backup" title="백업 · 복원" style="width:44px;height:44px;border-radius:50%;background:var(--surface);border:1px solid var(--border);margin-right:8px;">💾</button>
+        <button class="icon-btn" id="btn-hotkeys" title="숫자 단축키 (1~0번에 노트 지정)" style="width:44px;height:44px;border-radius:50%;background:var(--surface);border:1px solid var(--border);margin-right:8px;"><svg viewBox="0 0 24 24" width="21" height="21" aria-hidden="true"><rect x="1.8" y="5.2" width="20.4" height="13.6" rx="2.4" fill="none" stroke="currentColor" stroke-width="1.8"/><g fill="currentColor"><rect x="4.6" y="8.2" width="2.2" height="2.2" rx="0.6"/><rect x="8.2" y="8.2" width="2.2" height="2.2" rx="0.6"/><rect x="11.8" y="8.2" width="2.2" height="2.2" rx="0.6"/><rect x="15.4" y="8.2" width="2.2" height="2.2" rx="0.6"/><rect x="4.6" y="11.6" width="2.2" height="2.2" rx="0.6"/><rect x="8.2" y="11.6" width="2.2" height="2.2" rx="0.6"/><rect x="11.8" y="11.6" width="2.2" height="2.2" rx="0.6"/><rect x="15.4" y="11.6" width="2.2" height="2.2" rx="0.6"/><rect x="6.4" y="15" width="11.2" height="2.2" rx="1.1"/></g></svg></button>
         <button class="lib-select-btn" id="btn-select-mode" title="여러 노트 고르기">☑️ 선택</button>
         <button class="new-btn" id="btn-new">＋ 새 노트</button>
       </div>
@@ -797,6 +833,27 @@
         <button class="opt-btn" id="backup-push">☁️ 복원한 노트를 클라우드에도 올리기<small>복원은 이 기기에만 반영돼요</small></button>
       </div>
       <button class="modal-close" id="modal-backup-close">닫기</button>
+    </div>
+  </div>
+
+  <!-- 숫자 단축키 (1~0) -->
+  <div class="modal-backdrop" id="modal-hotkeys" style="display:none;">
+    <div class="modal">
+      <h3 id="hk-title">숫자 단축키</h3>
+      <p class="hk-hint" id="hk-hint">
+        키보드 <b>1~0</b>을 누르면 그 번호에 지정한 노트가 바로 열려요. 라이브러리에서도, 노트를 보는 중에도 똑같이 됩니다.<br>
+        <b>Tab</b>을 누르면 직전에 보던 노트로 돌아가고, 한 번 더 누르면 다시 원래 노트로 옵니다.<br>
+        ※ 검색창이나 쪽·굵기 입력칸에 글자를 넣는 중일 때는 단축키가 동작하지 않아요.
+      </p>
+      <div id="hk-list-panel">
+        <div class="hk-scroll" id="hotkey-slots"></div>
+        <button class="modal-close" id="modal-hotkeys-close">닫기</button>
+      </div>
+      <div id="hk-pick-panel" style="display:none;">
+        <input type="text" id="hk-search" placeholder="노트 제목 검색" autocomplete="off">
+        <div class="hk-scroll" id="hk-pick-list"></div>
+        <button class="modal-close" id="hk-pick-cancel">← 뒤로</button>
+      </div>
     </div>
   </div>
 
@@ -1612,6 +1669,34 @@ function saveNotePins(ids){
   try{ localStorage.setItem(NOTE_PIN_KEY, JSON.stringify(ids)); }catch(e){ /* 저장 실패는 무시 */ }
 }
 function isNotePinned(id){ return notePinRank.has(id); }
+/* ---------- 숫자 단축키 (1~0) ----------
+   1~0번에 노트를 하나씩 지정해두면, 라이브러리에서도 노트를 보는 중에도 그 숫자 키로 바로 열린다.
+   이 기기에만 저장한다(폴더·순서·고정과 같은 성격). 지워진 노트를 가리키는 칸은 목록을 새로 그릴 때 자동으로 비운다. */
+const HOTKEY_KEY = 'notepen_hotkeys';
+const HOTKEY_DIGITS = ['1','2','3','4','5','6','7','8','9','0'];
+let noteHotkey = new Map(); // 노트 id -> 숫자 (카드에 배지로 보여줌)
+function loadHotkeys(){
+  try{
+    const o = JSON.parse(localStorage.getItem(HOTKEY_KEY) || '{}');
+    return (o && typeof o === 'object' && !Array.isArray(o)) ? o : {};
+  }catch(e){ return {}; }
+}
+function saveHotkeys(map){
+  try{ localStorage.setItem(HOTKEY_KEY, JSON.stringify(map)); }catch(e){ /* 저장 실패는 무시 */ }
+}
+// 같은 노트를 두 번호에 겹쳐 두면 헷갈리므로, 새로 지정할 때 그 노트가 있던 다른 칸은 비운다.
+function setHotkey(digit, noteId){
+  const map = loadHotkeys();
+  HOTKEY_DIGITS.forEach(d=>{ if(map[d] === noteId) delete map[d]; });
+  if(noteId) map[digit] = noteId; else delete map[digit];
+  saveHotkeys(map);
+}
+function hotkeyNoteId(digit){ return loadHotkeys()[digit] || null; }
+/* Tab 오가기용 기록.
+   prevNoteId = 지금 보는 노트 바로 전에 보던 노트(노트 안에서 Tab을 누르면 여기로 감)
+   lastNoteId = 이 기기에서 마지막으로 연 노트(라이브러리에서 Tab을 누르면 여기로 감) */
+let prevNoteId = null;
+let lastNoteId = null;
 async function toggleNotePin(nb){
   const pins = loadNotePins();
   const i = pins.indexOf(nb.id);
@@ -1632,6 +1717,20 @@ async function toggleNotePin(nb){
 }
 function sortNotebooks(){
   const ids = new Set(notebooks.map(n=> n.id));
+  // 단축키 정리 (삭제된 노트를 가리키는 칸은 비움) + 카드 배지용 역방향 표 만들기
+  const hkMap = loadHotkeys();
+  let hkChanged = false;
+  noteHotkey = new Map();
+  HOTKEY_DIGITS.forEach(d=>{
+    const nid = hkMap[d];
+    if(!nid) return;
+    if(!ids.has(nid)){ delete hkMap[d]; hkChanged = true; return; }
+    noteHotkey.set(nid, d);
+  });
+  if(hkChanged) saveHotkeys(hkMap);
+  // Tab으로 돌아갈 노트가 지워졌으면 기록도 지움
+  if(prevNoteId && !ids.has(prevNoteId)) prevNoteId = null;
+  if(lastNoteId && !ids.has(lastNoteId)) lastNoteId = null;
   // 고정 목록 정리 (삭제된 노트는 빼기)
   const savedPins = loadNotePins();
   const pins = savedPins.filter(id=> ids.has(id));
@@ -1787,6 +1886,7 @@ function renderGrid(){
     const thumb = nb.thumbnail
       ? `<img src="${nb.thumbnail}">`
       : `<div style="font-size:34px;">📝</div>`;
+    const hkDigit = noteHotkey.get(nb.id) || null; // 이 노트에 지정된 숫자 단축키
     card.innerHTML = `
       <div class="card-body">
         <div class="card-title">${escapeHtml(nb.title)}</div>
@@ -1798,6 +1898,7 @@ function renderGrid(){
         <button class="card-pin-btn${pinned ? ' on' : ''}" data-id="${nb.id}" title="${pinned ? `상단 ${notePinRank.get(nb.id)+1}번째로 고정됨 (눌러서 해제)` : '상단에 고정하기'}">📌</button>
         <button class="card-del" data-id="${nb.id}">✕</button>
         <div class="card-check">${picked ? '✓' : ''}</div>
+        ${hkDigit ? `<div class="card-hotkey" title="단축키 ${hkDigit}번">${hkDigit}</div>` : ''}
         ${thumb}
       </div>`;
     card.addEventListener('click', (e)=>{
@@ -2095,7 +2196,7 @@ async function zipBytes(zip, e){
   return new Uint8Array(await zip.file.slice(start, start + e.csize).arrayBuffer());
 }
 
-const BACKUP_SETTING_KEYS = ['notepen_folders','notepen_note_order','notepen_note_pins','notepen_note_favs','notepen_scratch_note','notepen_eraser_mode'];
+const BACKUP_SETTING_KEYS = ['notepen_folders','notepen_note_order','notepen_note_pins','notepen_note_favs','notepen_scratch_note','notepen_eraser_mode','notepen_hotkeys'];
 
 async function exportBackup(){
   const btn = document.getElementById('backup-export');
@@ -2425,6 +2526,11 @@ async function openNotebook(id, targetPage, targetShortcutId){
   const found = all.find(n=>n.id===id);
   // 찾는 노트가 없으면(예: 바로가기 아이콘이 가리키던 노트가 삭제된 경우) 지금 보던 노트를 그대로 유지함
   if(!found){ toast('노트를 찾을 수 없어요.'); return; }
+  // Tab 오가기 기록: 다른 노트에서 넘어온 경우에만 '직전 노트'를 갱신함
+  // (같은 노트를 다시 열거나 라이브러리에서 그 노트로 돌아온 경우엔 A↔B 짝이 유지돼야 함)
+  const leavingId = (current && inNoteView()) ? current.id : null;
+  if(leavingId && leavingId !== id) prevNoteId = leavingId;
+  lastNoteId = id;
   current = found;
   // 바로가기 아이콘 등에서 '몇 쪽'을 지정해 연 경우, 마지막으로 보던 위치보다 그 쪽이 우선임
   const wantPage = (typeof targetPage === 'number' && targetPage >= 0 && targetPage < found.pages.length) ? targetPage : null;
@@ -2539,6 +2645,158 @@ document.getElementById('btn-shortcut-back').addEventListener('click', async ()=
     }, 350); // 스크롤 애니메이션이 어느 정도 진행된 뒤에 강조해야 눈에 잘 띔
   }
 });
+/* ================= 숫자 단축키(1~0) · Tab으로 이전 노트 오가기 =================
+   - 1~0 : 그 번호에 지정한 노트를 바로 엶 (라이브러리·노트 화면 어디서나)
+   - Tab : 노트 안에서는 직전에 보던 노트로, 라이브러리에서는 마지막으로 본 노트로
+           (A에서 B로 갔다면 Tab은 A로, 한 번 더 누르면 다시 B로 — 둘 사이를 오감)
+   글자를 입력하는 중(검색창·쪽 번호·굵기 입력 등)이거나 팝업/모달이 떠 있을 때는 동작하지 않음. */
+function hotkeyInputBusy(){
+  const el = document.activeElement;
+  if(el){
+    const tag = (el.tagName || '').toUpperCase();
+    if(tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el.isContentEditable) return true;
+  }
+  return false;
+}
+function hotkeyPopupOpen(){
+  const backs = document.querySelectorAll('.modal-backdrop');
+  for(let i=0; i<backs.length; i++){
+    const d = backs[i].style.display;
+    if(d && d !== 'none') return true;
+  }
+  const er = document.getElementById('eraser-popover');
+  if(er && er.classList.contains('open')) return true;
+  const fmp = document.getElementById('folder-move-popover');
+  if(fmp && fmp.classList.contains('open')) return true;
+  return false;
+}
+// #editor의 'display:none'은 인라인이 아니라 CSS 규칙에서 오므로,
+// 처음 로드했을 때 editorEl.style.display는 빈 문자열임 -> 반드시 계산된 스타일로 판정할 것
+function inNoteView(){ return getComputedStyle(editorEl).display !== 'none'; }
+
+async function openHotkeyNote(digit){
+  const id = hotkeyNoteId(digit);
+  if(!id){
+    toast(digit + '번에 지정된 노트가 없어요. 라이브러리의 키보드 버튼에서 정할 수 있어요.');
+    return;
+  }
+  if(inNoteView() && current && current.id === id){ toast('이미 ' + digit + '번 노트예요'); return; }
+  if(inNoteView()) await persist(true); // 보던 노트를 먼저 저장하고 넘어감
+  await openNotebook(id);
+}
+async function jumpToPrevNote(){
+  if(inNoteView()){
+    if(!prevNoteId || (current && prevNoteId === current.id)){ toast('돌아갈 이전 노트가 없어요'); return; }
+    const target = prevNoteId;
+    await persist(true);
+    await openNotebook(target);
+  } else {
+    if(!lastNoteId){ toast('최근에 본 노트가 없어요'); return; }
+    await openNotebook(lastNoteId);
+  }
+}
+document.addEventListener('keydown', (e)=>{
+  if(e.ctrlKey || e.metaKey || e.altKey) return;
+  if(e.isComposing || e.keyCode === 229) return; // 한글 조합 중
+  if(hotkeyInputBusy() || hotkeyPopupOpen()) return;
+  if(e.key === 'Tab'){
+    e.preventDefault();
+    jumpToPrevNote();
+    return;
+  }
+  if(e.key && e.key.length === 1 && e.key >= '0' && e.key <= '9'){
+    e.preventDefault();
+    openHotkeyNote(e.key);
+  }
+});
+
+/* ---------- 단축키 설정 화면 ---------- */
+let hkPickingDigit = null; // 지금 노트를 고르는 중인 번호
+function renderHotkeySlots(){
+  const wrap = document.getElementById('hotkey-slots');
+  const map = loadHotkeys();
+  wrap.innerHTML = '';
+  HOTKEY_DIGITS.forEach(d=>{
+    const nid = map[d] || null;
+    const nb = nid ? notebooks.find(n=> n.id === nid) : null;
+    const row = document.createElement('div');
+    row.className = 'hk-row' + (nb ? '' : ' hk-empty'); // 'empty'는 라이브러리 안내문 클래스와 겹치므로 쓰지 말 것
+    row.innerHTML = `
+      <div class="hk-num">${d}</div>
+      <div class="hk-name">${nb ? escapeHtml(nb.title) : '비어 있음 — 눌러서 노트 고르기'}</div>
+      ${nb ? '<button type="button" class="hk-clear" title="이 번호 비우기">✕</button>' : ''}`;
+    row.addEventListener('click', (e)=>{
+      if(e.target.closest('.hk-clear')) return;
+      openHotkeyPicker(d);
+    });
+    const clr = row.querySelector('.hk-clear');
+    if(clr) clr.addEventListener('click', (e)=>{
+      e.stopPropagation();
+      setHotkey(d, null);
+      renderHotkeySlots();
+      refreshLibrary();
+      toast(d + '번을 비웠어요');
+    });
+    wrap.appendChild(row);
+  });
+}
+function renderHotkeyPickList(){
+  const list = document.getElementById('hk-pick-list');
+  const q = (document.getElementById('hk-search').value || '').trim().toLowerCase();
+  const cur = hkPickingDigit ? (loadHotkeys()[hkPickingDigit] || null) : null;
+  const items = notebooks.filter(nb=> !q || String(nb.title||'').toLowerCase().includes(q));
+  list.innerHTML = '';
+  if(!items.length){
+    const d = document.createElement('div');
+    d.className = 'hk-hint';
+    d.textContent = q ? '검색 결과가 없어요.' : '노트가 아직 없어요.';
+    list.appendChild(d);
+    return;
+  }
+  items.forEach(nb=>{
+    const row = document.createElement('div');
+    row.className = 'hk-pick-item' + (cur === nb.id ? ' sel' : '');
+    row.textContent = (cur === nb.id ? '✓ ' : '') + nb.title;
+    row.addEventListener('click', ()=>{
+      setHotkey(hkPickingDigit, nb.id);
+      toast(hkPickingDigit + '번 = "' + nb.title + '"');
+      closeHotkeyPicker();
+      renderHotkeySlots();
+      refreshLibrary();
+    });
+    list.appendChild(row);
+  });
+}
+function openHotkeyPicker(digit){
+  hkPickingDigit = digit;
+  document.getElementById('hk-title').textContent = digit + '번에 넣을 노트 고르기';
+  document.getElementById('hk-hint').style.display = 'none';
+  document.getElementById('hk-list-panel').style.display = 'none';
+  document.getElementById('hk-pick-panel').style.display = 'block';
+  document.getElementById('hk-search').value = '';
+  renderHotkeyPickList();
+}
+function closeHotkeyPicker(){
+  hkPickingDigit = null;
+  document.getElementById('hk-title').textContent = '숫자 단축키';
+  document.getElementById('hk-hint').style.display = '';
+  document.getElementById('hk-pick-panel').style.display = 'none';
+  document.getElementById('hk-list-panel').style.display = 'block';
+}
+function openHotkeyModal(){
+  closeHotkeyPicker();
+  renderHotkeySlots();
+  document.getElementById('modal-hotkeys').style.display = 'flex';
+}
+function closeHotkeyModal(){ document.getElementById('modal-hotkeys').style.display = 'none'; }
+document.getElementById('btn-hotkeys').addEventListener('click', openHotkeyModal);
+document.getElementById('modal-hotkeys-close').addEventListener('click', closeHotkeyModal);
+document.getElementById('hk-pick-cancel').addEventListener('click', closeHotkeyPicker);
+document.getElementById('hk-search').addEventListener('input', renderHotkeyPickList);
+document.getElementById('modal-hotkeys').addEventListener('click', (e)=>{
+  if(e.target.id === 'modal-hotkeys') closeHotkeyModal();
+});
+
 document.getElementById('title-input').oninput = (e)=>{ current.title = e.target.value; scheduleSave(); };
 
 /* ================= Rendering ================= */
