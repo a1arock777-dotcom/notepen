@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>NotePen</title>
-<!-- build: 2026-09-15c (페이지 번호를 화면 중앙 기준으로) -->
+<!-- build: 2026-09-15d (툴바 아이콘 5종 교체) -->
 <style>
   :root{
     --bg: #f4f3f1;
@@ -878,7 +878,7 @@
         <button class="icon-btn" data-tool="pan" title="이동">✋</button>
         <button class="icon-btn" data-tool="pen" title="펜">🖊️</button>
         <div id="eraser-wrap">
-          <button class="icon-btn" data-tool="eraser" id="btn-eraser" title="지우개">🧹</button>
+          <button class="icon-btn" data-tool="eraser" id="btn-eraser" title="지우개"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><g transform="rotate(-26 12 12)"><rect x="0.9" y="7.4" width="22.2" height="9.2" rx="2.8" fill="#efedfa"/><path d="M6.4 7.4h4.6v9.2H6.4z" fill="#fb6b78"/><path d="M11 7.4h4.6v9.2H11z" fill="#ffd166"/><path d="M15.6 7.4h2.2v9.2h-2.2z" fill="#fb6b78"/><rect x="0.9" y="7.4" width="22.2" height="9.2" rx="2.8" fill="none" stroke="#a9a5c9" stroke-width="1.1"/></g></svg></button>
           <div id="eraser-popover">
             <button type="button" class="eraser-opt" data-eraser-mode="select">✏️ 부분 지우기 (기본)</button>
             <button type="button" class="eraser-opt" data-eraser-mode="clearPage">🗒️ 현재 페이지 전체 지우기</button>
@@ -892,11 +892,11 @@
             </div>
           </div>
         </div>
-        <button class="icon-btn" data-tool="highlight" title="형광펜">🖍️</button>
-        <button class="icon-btn" data-tool="mask" title="도형(가리기·마스킹)">▭</button>
+        <button class="icon-btn" data-tool="highlight" title="형광펜"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><g transform="rotate(38 12 12)"><rect x="7.2" y="1.4" width="9.6" height="14.6" rx="2.6" fill="#ffd21e" stroke="#151515" stroke-width="1.6"/><rect x="9.7" y="4.4" width="4.6" height="8.6" rx="2" fill="#c9cdd2" stroke="#151515" stroke-width="1.2"/><path d="M7.2 16h9.6l-2.9 5.4h-3.8z" fill="#c2c6cb" stroke="#151515" stroke-width="1.6" stroke-linejoin="round"/></g></svg></button>
+        <button class="icon-btn" data-tool="mask" title="도형(가리기·마스킹)"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><rect x="2.4" y="2.4" width="11.2" height="11.2" rx="1.8"/><circle cx="16.2" cy="16.2" r="5.4"/></g></svg></button>
         <button class="icon-btn" data-tool="lasso" title="올가미 선택 — 둘러 그으면 그 안의 필기·도형·이미지가 통째로 선택돼요">◌</button>
       </div>
-      <button class="icon-btn" id="btn-paste" title="붙여넣기 — 복사한 글자·이미지 기록에서 고르기">📋</button>
+      <button class="icon-btn" id="btn-paste" title="붙여넣기 — 복사한 글자·이미지 기록에서 고르기"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M8.4 3.6H5.4A1.6 1.6 0 0 0 3.8 5.2v15.2A1.6 1.6 0 0 0 5.4 22h13.2a1.6 1.6 0 0 0 1.6-1.6V5.2a1.6 1.6 0 0 0-1.6-1.6h-3" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"/><rect x="8.2" y="1.7" width="7.6" height="3.8" rx="1.3" fill="currentColor"/><path d="M7.2 9.6h9.6M7.2 12.8h9.6M7.2 16h9.6" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg></button>
       <div class="divider"></div>
       <button class="icon-btn" id="btn-straight-line" title="수평(가로)으로 긋기(토글)"><svg viewBox="0 0 20 20" width="19" height="19" aria-hidden="true"><rect x="1.6" y="6.6" width="16.8" height="6.8" rx="1.4" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M5 6.6v3.2M8.5 6.6v2.1M12 6.6v3.2M15.5 6.6v2.1" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg></button>
       <button class="icon-btn" id="btn-straight-line-v" title="수직(세로)으로 긋기(토글)"><svg viewBox="0 0 20 20" width="19" height="19" aria-hidden="true"><rect x="6.6" y="1.6" width="6.8" height="16.8" rx="1.4" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M6.6 5h3.2M6.6 8.5h2.1M6.6 12h3.2M6.6 15.5h2.1" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg></button>
@@ -949,7 +949,7 @@
       <div class="divider"></div>
       <button class="icon-btn" id="btn-addpage" title="페이지 추가">＋📄</button>
       <button class="icon-btn" id="btn-image" title="이미지 추가">🖼️</button>
-      <button class="icon-btn" id="btn-add-shortcut" title="새 노트 바로가기 아이콘 추가">📄</button>
+      <button class="icon-btn" id="btn-add-shortcut" title="새 노트 바로가기 아이콘 추가"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><defs><mask id="npchain"><rect width="24" height="24" fill="#fff"/><g transform="rotate(-45 12 12)"><rect x="8.9" y="5.4" width="4" height="13.2" fill="#000"/></g></mask></defs><g transform="rotate(-45 12 12)" fill="none" stroke="currentColor" stroke-width="3"><rect x="1.2" y="7.4" width="12" height="9.2" rx="4.6" mask="url(#npchain)"/><rect x="10.8" y="7.4" width="12" height="9.2" rx="4.6"/></g></svg></button>
     </div>
     <input type="file" accept="image/*" class="hidden-input" id="image-input">
     <div class="canvas-wrap" id="canvas-wrap">
