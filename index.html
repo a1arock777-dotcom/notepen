@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>NotePen</title>
-<!-- build: 2026-09-15g (펜으로 두 번 톡 = 텍스트 상자) -->
+<!-- build: 2026-09-15h (선택·글상자 막대가 화면 밖으로 잘리던 문제 수정) -->
 <style>
   :root{
     --bg: #f4f3f1;
@@ -508,11 +508,11 @@
     white-space:pre-wrap; -webkit-user-select:text; user-select:text;
   }
   .txt-bar{
-    position:absolute; left:0; bottom:100%; margin-bottom:6px; z-index:62;
+    position:absolute; left:0; bottom:100%; margin-bottom:6px; z-index:62; transform-origin:0% 100%;
     display:flex; align-items:center; gap:4px; padding:5px 8px; border-radius:999px;
     background:rgba(30,30,34,0.93); box-shadow:var(--shadow); white-space:nowrap; cursor:default;
   }
-  .txt-bar.below{ bottom:auto; top:100%; margin-bottom:0; margin-top:6px; }
+  .txt-bar.below{ bottom:auto; top:100%; margin-bottom:0; margin-top:6px; transform-origin:0% 0%; }
   .txt-bar button{
     background:rgba(255,255,255,0.14); border:none; color:#fff; font-size:12px; font-weight:700;
     padding:3px 8px; border-radius:999px; cursor:pointer; line-height:1.4; flex:0 0 auto;
@@ -586,9 +586,12 @@
   }
   .sel-bar{
     position:absolute; left:50%; bottom:100%; transform:translateX(-50%); margin-bottom:7px;
+    transform-origin:50% 100%; /* 배율 역보정(scale 1/zoom)을 걸 때 상자 바로 위가 기준이 되도록 */
     display:flex; align-items:center; gap:5px; padding:6px 9px; border-radius:999px;
     background:rgba(30,30,34,0.93); box-shadow:var(--shadow); white-space:nowrap; cursor:default;
+    z-index:70;
   }
+  .sel-bar.sel-bar-below{ transform-origin:50% 0%; }
   .sel-sw{
     width:17px; height:17px; border-radius:50%; border:1px solid rgba(255,255,255,0.55);
     cursor:pointer; flex:0 0 auto; display:block;
@@ -3259,6 +3262,7 @@ function syncStackFootprint(){
   const natH = stackEl.offsetHeight; // 배율이 걸리기 전 레이아웃 높이(자리표시자도 실제 높이를 가짐). 여백은 포함 안 되므로 값이 흔들리지 않음
   stackEl.style.marginRight = (maxW * zoom - maxW) + 'px';
   if(natH > 0) stackEl.style.marginBottom = (natH * zoom - natH) + 'px';
+  relayoutFloatBars(); // 배율이 바뀌었으니 떠 있는 막대도 다시 맞춤
 }
 // 콘텐츠가 화면보다 좁을 때만 margin으로 가운데 정렬 (핀치 중에는 호출하지 않음 — 좌표 기준이 흔들리지 않도록)
 function centerIfFits(){
@@ -4887,10 +4891,7 @@ function showSelectionBox(){
   });
   block.appendChild(box);
   selBoxEl = box;
-  // 고른 영역이 화면 위쪽에 바짝 붙어 있으면 막대가 화면 밖으로 잘리므로 상자 아래로 내림
-  const barRect = bar.getBoundingClientRect();
-  const wrapRect = wrapEl.getBoundingClientRect();
-  if(barRect.top < wrapRect.top + 4) bar.classList.add('sel-bar-below');
+  layoutFloatBar(bar, true); // 화면 밖으로 잘리지 않게 배치(위/아래 뒤집기 + 배율 역보정 + 좌우 보정)
 }
 /* ================= 텍스트 상자 (펜으로 두 번 톡톡) =================
    펜으로 빈 곳을 빠르게 두 번 톡톡 치면 그 자리에 텍스트 상자가 생기고 바로 타자를 칠 수 있다.
@@ -4939,19 +4940,37 @@ function selectText(pageIdx, tx){
   el.appendChild(buildTextBar(pageIdx, tx, el, false));
   selectedText = {pageIdx, t: tx, el};
 }
-function placeTextBar(bar){
-  // 상자가 페이지 맨 위에 붙어 있으면 막대가 화면 밖으로 나가므로 아래로 뒤집음
-  let r = bar.getBoundingClientRect();
-  const w = wrapEl.getBoundingClientRect();
-  if(r.top < w.top + 4) bar.classList.add('below');
-  // 막대가 색 스와치까지 들어가 꽤 넓어서 오른쪽으로 삐져나갈 수 있음 -> 화면 안으로 끌어당김
-  bar.style.transform = '';
-  r = bar.getBoundingClientRect();
+/* 페이지 위에 떠 있는 도구 막대(선택 막대·글상자 막대)를 화면 안에 들어오게 배치한다.
+   이 막대들은 배율이 걸린 #page-stack 안에 있어서 폭 맞춤(보통 2배 이상)이면 그만큼 커진다.
+   색 스와치 12개까지 들어가면 화면보다 넓어져 왼쪽 끝(복사·잘라내기 버튼)이 잘려 나간다.
+   그래서 ①배율을 역보정해 항상 같은 크기로 보이게 하고 ②그래도 넘치면 좌우로 끌어당긴다.
+   centered=true면 원래 가운데 정렬(translateX(-50%))을 쓰는 막대. */
+function layoutFloatBar(bar, centered){
+  if(!bar || !bar.isConnected) return;
   const z = zoom || 1;
+  const base = (centered ? 'translateX(-50%) ' : '') + 'scale(' + (1/z) + ')';
+  bar.style.transform = base;
+  const w = wrapEl.getBoundingClientRect();
+  // 위쪽에 자리가 없으면 상자 아래로 뒤집음
+  let r = bar.getBoundingClientRect();
+  if(r.top < w.top + 4){
+    bar.classList.add(bar.classList.contains('txt-bar') ? 'below' : 'sel-bar-below');
+    r = bar.getBoundingClientRect();
+  }
+  // 좌우로 화면 안에 넣기 (둘 다 넘치면 왼쪽을 살림 — 왼쪽에 복사·잘라내기가 있음)
   let shift = 0;
-  if(r.right > w.right - 6) shift = (w.right - 6 - r.right) / z;
-  if(r.left + shift * z < w.left + 6) shift = (w.left + 6 - r.left) / z;
-  if(shift) bar.style.transform = 'translateX(' + Math.round(shift) + 'px)';
+  if(r.right > w.right - 6) shift = (w.right - 6 - r.right);
+  if(r.left + shift < w.left + 6) shift = (w.left + 6 - r.left);
+  // ⚠️ 여기서 shift에 zoom을 곱하면 안 됨: 막대는 배율이 걸린 #page-stack 안에 있고
+  //    바로 위에서 scale(1/zoom)으로 그 배율을 상쇄했으므로, 이 translateX는 이미 1:1 화면 px임.
+  if(shift) bar.style.transform = base + ' translateX(' + Math.round(shift) + 'px)';
+}
+function placeTextBar(bar){ layoutFloatBar(bar, false); }
+// 배율이 바뀌면(핀치·폭 맞춤) 떠 있는 막대도 다시 배치해야 크기·위치가 안 어긋남
+function relayoutFloatBars(){
+  const sb = stackEl && stackEl.querySelector('.sel-bar');
+  if(sb) layoutFloatBar(sb, true);
+  stackEl && stackEl.querySelectorAll('.txt-bar').forEach(b=> layoutFloatBar(b, false));
 }
 function buildTextBar(pageIdx, tx, el, editing){
   const bar = document.createElement('div');
