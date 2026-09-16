@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>NotePen</title>
-<!-- build: 2026-09-16b (지우개로 글상자도 지움 + 꾹 누르기 안정화) -->
+<!-- build: 2026-09-16c (Ctrl+Q로 꾹 눌러 글상자 만들기 켜기/끄기) -->
 <style>
   :root{
     --bg: #f4f3f1;
@@ -2256,7 +2256,7 @@ async function zipBytes(zip, e){
   return new Uint8Array(await zip.file.slice(start, start + e.csize).arrayBuffer());
 }
 
-const BACKUP_SETTING_KEYS = ['notepen_folders','notepen_note_order','notepen_note_pins','notepen_note_favs','notepen_scratch_note','notepen_eraser_mode','notepen_hotkeys','notepen_text_style'];
+const BACKUP_SETTING_KEYS = ['notepen_folders','notepen_note_order','notepen_note_pins','notepen_note_favs','notepen_scratch_note','notepen_eraser_mode','notepen_hotkeys','notepen_text_style','notepen_penhold'];
 
 async function exportBackup(){
   const btn = document.getElementById('backup-export');
@@ -2758,6 +2758,13 @@ async function jumpToPrevNote(){
   }
 }
 document.addEventListener('keydown', (e)=>{
+  // Ctrl+Q : 펜으로 꾹 눌러 글상자 만들기 켜기/끄기 (노트 화면이 아니어도 됨)
+  if((e.ctrlKey || e.metaKey) && !e.altKey && (e.key || '').toLowerCase() === 'q'
+     && !hotkeyInputBusy() && !hotkeyPopupOpen()){
+    e.preventDefault();
+    togglePenHold();
+    return;
+  }
   // 올가미 선택 복사·잘라내기·붙여넣기 (키보드를 쓸 때만; 입력칸에 있을 땐 브라우저 기본 동작이 우선)
   if((e.ctrlKey || e.metaKey) && !e.altKey && inNoteView() && !hotkeyInputBusy() && !hotkeyPopupOpen()){
     const k = (e.key || '').toLowerCase();
@@ -5207,6 +5214,24 @@ function createTextBoxAt(e){
    누르는 순간 획은 평소처럼 시작되지만, 거의 움직이지 않은 채 PEN_HOLD_MS가 지나면
    그리던 획을 통째로 버리고(아직 layer.strokes에 넣기 전이라 캔버스만 다시 그리면 됨) 글상자를 연다.
    조금이라도 움직이거나 그 전에 손을 떼면 그냥 평범한 필기가 된다. */
+const PEN_HOLD_KEY = 'notepen_penhold';
+/* 꾹 눌러 글상자 만들기를 Ctrl+Q로 켜고 끌 수 있음. 기기별 설정이라 localStorage에 저장하고,
+   꺼두면 다음에 앱을 열어도 꺼진 채로 시작한다. 기본값은 켜짐. */
+let penHoldEnabled = true;
+function loadPenHoldEnabled(){
+  try{
+    // '0'일 때만 끔 — 값이 없거나 깨졌으면 켜진 상태가 기본
+    if(localStorage.getItem(PEN_HOLD_KEY) === '0') penHoldEnabled = false;
+  }catch(e){}
+}
+function togglePenHold(){
+  penHoldEnabled = !penHoldEnabled;
+  if(!penHoldEnabled) cancelPenHold(); // 끄는 순간, 누르고 있던 것도 취소
+  try{ localStorage.setItem(PEN_HOLD_KEY, penHoldEnabled ? '1' : '0'); }catch(e){}
+  toast(penHoldEnabled
+    ? '켬 · 펜으로 꾹 누르면 글상자가 생겨요 (Ctrl+Q로 끄기)'
+    : '끔 · 꾹 눌러도 글상자가 안 생겨요 (Ctrl+Q로 다시 켜기)');
+}
 const PEN_HOLD_MS = 450;          // 이만큼 누르고 있어야 글상자가 뜸 (안드로이드 롱프레스 기본값과 같음)
 const PEN_HOLD_SHOW_MS = 150;     // 이만큼 가만히 있으면 '꾹 누르는 중' 링을 띄움
 const PEN_HOLD_CANCEL_MOVE = 14;  // 화면 px 기준, 이보다 움직이면 '꾹 누르기'가 아니라 필기로 봄
@@ -5238,6 +5263,7 @@ function showPenHoldRing(x, y){
 }
 function startPenHold(e){
   cancelPenHold();
+  if(!penHoldEnabled) return; // Ctrl+Q로 꺼둔 상태 — 타이머를 아예 걸지 않음
   const info = {id:e.pointerId, x:e.clientX, y:e.clientY, target:e.target,
                 pageIdx:activePageIdx, layerIdx:activeLayerIdx};
   penHoldInfo = info;
@@ -6381,6 +6407,7 @@ refreshLibrary();
 initStorageSafety(); // 브라우저가 노트를 함부로 지우지 못하게 영구 저장 권한을 요청
 loadInkClip();       // 지난번에 올가미로 복사해둔 것이 있으면 되살림(앱을 다시 열어도 붙여넣을 수 있게)
 loadTextStyle();     // 마지막으로 쓴 글자 크기·색 (새 버전을 받아도 그대로 유지)
+loadPenHoldEnabled();// 꾹 눌러 글상자 만들기를 껐었다면 꺼진 채로 시작 (Ctrl+Q)
 </script>
 </body>
 </html>
