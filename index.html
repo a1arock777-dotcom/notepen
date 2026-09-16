@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>NotePen</title>
-<!-- build: 2026-09-16a (펜으로 꾹 오래 누르면 텍스트 상자) -->
+<!-- build: 2026-09-16b (지우개로 글상자도 지움 + 꾹 누르기 안정화) -->
 <style>
   :root{
     --bg: #f4f3f1;
@@ -491,7 +491,19 @@
   .page-image.img-moving .img-head{ background:rgba(217,98,43,0.88); cursor:grabbing; }
 
   /* ---------- 노트 위에 붙이는 새 노트 바로가기 아이콘 ---------- */
-  /* ---------- 텍스트 상자 (펜으로 두 번 톡톡) ---------- */
+  /* ---------- 펜으로 꾹 누르는 중임을 알려주는 링 ---------- */
+  /* position:fixed라 배율(#page-stack의 scale)에 휩쓸리지 않고 항상 같은 크기로 보임 */
+  .pen-hold-ring{
+    display:none; position:fixed; width:48px; height:48px; margin:-24px 0 0 -24px;
+    border-radius:50%; border:2.5px solid var(--accent); pointer-events:none; z-index:9000;
+    opacity:0; transform:scale(1.15);
+  }
+  @keyframes npHoldGrow{
+    0%{ opacity:0; transform:scale(1.15); }
+    30%{ opacity:0.85; }
+    100%{ opacity:0.95; transform:scale(0.32); }
+  }
+  /* ---------- 텍스트 상자 (펜으로 꾹 오래 누르기) ---------- */
   .page-text{
     position:absolute; z-index:50; padding:2px 5px; border-radius:6px;
     white-space:pre-wrap; overflow-wrap:break-word; line-height:1.35;
@@ -3385,8 +3397,22 @@ function clearPageWriting(pageIdx, redraw){
   if(redraw === undefined) redraw = true;
   const page = current.pages[pageIdx];
   if(!page) return;
+  // 편집 중이던 글상자는 먼저 확정한다(빈 상자가 사라지는 등 page.texts가 바뀌므로 스냅샷보다 앞이어야 함)
+  if(editingText && editingText.pageIdx === pageIdx) commitEditText();
+  if(selectedText && selectedText.pageIdx === pageIdx) clearTextSelection();
+  const hadInk = page.layers.some(L=> L.strokes.length || L.masks.length);
+  const hadTexts = !!(page.texts && page.texts.length);
+  // ⚠️ 레이어마다 스냅샷을 쌓으면 되돌리기를 레이어 수만큼 눌러야 한다.
+  //    페이지 스냅샷(모든 레이어 + 개체) 하나만 남겨서 되돌리기 한 번으로 전부 복구되게 함.
+  if(redraw && (hadInk || hadTexts)) pushHistory(snapshotPage(pageIdx));
+  // 글상자도 같이 지움 — '백지로 만든다'고 해놓고 글상자만 남으면 말이 안 맞으므로.
+  // (이미지·바로가기 아이콘은 그대로 둠)
+  if(hadTexts){
+    page.texts = [];
+    const blk = stackEl.querySelector(`.page-block[data-page-idx="${pageIdx}"]`);
+    if(blk) blk.querySelectorAll('.page-text').forEach(el=> el.remove());
+  }
   page.layers.forEach((layer, li)=>{
-    if(redraw && (layer.strokes.length || layer.masks.length)) pushHistory(snapshotLayer(pageIdx, li));
     layer.strokes = [];
     layer.masks = [];
     if(redraw) redrawLayerCanvas(pageIdx, li);
@@ -4367,6 +4393,7 @@ function onPointerDown(e){
   if(!pinchActive && tEntries.length >= 2){
     // 손가락 두 개가 닿으면 그 두 개의 id를 고정해서 핀치 기준으로 삼음 (그리기/패닝 전부 중단)
     drawing = false; currentStroke = null; maskStart = null; panStart = null; activeAction = null;
+    cancelPenHold(); // 손가락 두 개가 닿았으면 확대/축소 제스처 — 글상자가 뜨면 안 됨
     pinchActive = true;
     pinchIds = [tEntries[0][0], tEntries[1][0]];
     const p1 = activePointers.get(pinchIds[0]), p2 = activePointers.get(pinchIds[1]);
@@ -4419,7 +4446,9 @@ function onPointerDown(e){
   }
 
   drawing = true;
-  pushHistory(snapshotLayer(activePageIdx, activeLayerIdx));
+  // 지우개는 글상자(개체)도 지우므로 개체 목록까지 담은 스냅샷이 필요함
+  pushHistory(activeAction==='eraser' ? snapshotPage(activePageIdx)
+                                      : snapshotLayer(activePageIdx, activeLayerIdx));
 
   if(activeAction==='pen'){
     currentStroke = { type:'pen', color, size, points:[{x,y,p:Math.round((e.pressure||0.5)*100)/100}] };
@@ -4486,6 +4515,13 @@ function onPointerMove(e){
   if(activePointers.has(e.pointerId)){
     activePointers.set(e.pointerId, {x:e.clientX, y:e.clientY, type:e.pointerType});
   }
+  // '꾹 누르기'가 깨졌는지는 그 펜 포인터의 움직임만 보고 판단한다.
+  // ⚠️ 아래 핀치·패닝 분기가 return으로 빠져나가므로 반드시 그 앞에서 검사해야 함
+  //    (손바닥이 닿으면 activeAction이 'pan'으로 바뀌어 패닝 분기로 새는 일이 있음).
+  if(penHoldInfo && e.pointerId === penHoldInfo.id &&
+     Math.hypot(e.clientX - penHoldInfo.x, e.clientY - penHoldInfo.y) > PEN_HOLD_CANCEL_MOVE){
+    cancelPenHold(e);
+  }
   if(pinchActive){
     const p1 = activePointers.get(pinchIds && pinchIds[0]);
     const p2 = activePointers.get(pinchIds && pinchIds[1]);
@@ -4535,8 +4571,6 @@ function onPointerMove(e){
     updatePageIndicatorFromScroll();
     return;
   }
-  // 펜이 조금이라도 움직이면 '꾹 누르기'가 아니라 필기
-  if(penHoldInfo && Math.hypot(e.clientX - penHoldInfo.x, e.clientY - penHoldInfo.y) > PEN_HOLD_CANCEL_MOVE) cancelPenHold();
   if(!drawing) return;
   let {x,y} = coordFromEvent(e, strokeCanvas);
   if(straightAxis && currentStroke && currentStroke.points.length){
@@ -4605,7 +4639,7 @@ function onPointerMove(e){
 }
 function onPointerUp(e){
   activePointers.delete(e.pointerId);
-  cancelPenHold(); // 손을 떼면 '꾹 누르기'는 끝 (pointercancel도 이 함수로 들어옴)
+  cancelPenHold(e); // 그 펜을 뗐을 때만 끝 (pointercancel도 이 함수로 들어옴)
 
   if(pinchActive){
     if(pinchIds && pinchIds.includes(e.pointerId)){
@@ -5106,6 +5140,9 @@ function createTextElement(page, pageIdx, tx){
   el.addEventListener('pointerdown', (e)=>{
     if(e.target.closest('.txt-bar') || e.target.tagName === 'TEXTAREA') return;
     if(e.pointerType === 'touch') return;   // 손가락은 화면 넘기기용 — 글상자를 잡지 않음
+    // 지우개(툴바 지우개 또는 S펜 지우개 끝)일 땐 가로채지 않고 그대로 흘려보낸다.
+    // stopPropagation을 안 하므로 이벤트가 #page-stack까지 올라가 eraseAt이 이 상자를 지운다.
+    if(resolveAction(e) === 'eraser') return;
     if(editingText && editingText.t === tx) return;
     e.stopPropagation();
     e.preventDefault();
@@ -5170,21 +5207,51 @@ function createTextBoxAt(e){
    누르는 순간 획은 평소처럼 시작되지만, 거의 움직이지 않은 채 PEN_HOLD_MS가 지나면
    그리던 획을 통째로 버리고(아직 layer.strokes에 넣기 전이라 캔버스만 다시 그리면 됨) 글상자를 연다.
    조금이라도 움직이거나 그 전에 손을 떼면 그냥 평범한 필기가 된다. */
-const PEN_HOLD_MS = 600;          // 이만큼 누르고 있어야 글상자가 뜸
-const PEN_HOLD_CANCEL_MOVE = 10;  // 화면 px 기준, 이보다 움직이면 '꾹 누르기'가 아니라 필기로 봄
-let penHoldTimer = null, penHoldInfo = null;
-function cancelPenHold(){
+const PEN_HOLD_MS = 450;          // 이만큼 누르고 있어야 글상자가 뜸 (안드로이드 롱프레스 기본값과 같음)
+const PEN_HOLD_SHOW_MS = 150;     // 이만큼 가만히 있으면 '꾹 누르는 중' 링을 띄움
+const PEN_HOLD_CANCEL_MOVE = 14;  // 화면 px 기준, 이보다 움직이면 '꾹 누르기'가 아니라 필기로 봄
+let penHoldTimer = null, penHoldShowTimer = null, penHoldInfo = null, penHoldRingEl = null;
+/* e를 넘기면 '꾹 누르고 있던 바로 그 포인터'일 때만 취소한다.
+   ⚠️ 이게 없으면 손바닥이나 다른 손가락이 화면에 스쳤다 떨어지기만 해도(onPointerUp은 포인터를 가리지 않음)
+      펜의 꾹 누르기가 죽어버려서 '될 때가 있고 안 될 때가 있는' 증상이 생긴다. */
+function cancelPenHold(e){
+  if(e && penHoldInfo && e.pointerId !== penHoldInfo.id) return;
   if(penHoldTimer){ clearTimeout(penHoldTimer); penHoldTimer = null; }
+  if(penHoldShowTimer){ clearTimeout(penHoldShowTimer); penHoldShowTimer = null; }
   penHoldInfo = null;
+  hidePenHoldRing();
+}
+function hidePenHoldRing(){ if(penHoldRingEl) penHoldRingEl.style.display = 'none'; }
+function showPenHoldRing(x, y){
+  if(!penHoldRingEl){
+    penHoldRingEl = document.createElement('div');
+    penHoldRingEl.className = 'pen-hold-ring';
+    document.body.appendChild(penHoldRingEl);
+  }
+  const d = penHoldRingEl;
+  d.style.left = x + 'px';
+  d.style.top  = y + 'px';
+  d.style.display = 'block';
+  d.style.animation = 'none';
+  void d.offsetWidth; // 애니메이션을 다시 처음부터 재생시키기 위한 리플로우
+  d.style.animation = 'npHoldGrow ' + (PEN_HOLD_MS - PEN_HOLD_SHOW_MS) + 'ms linear forwards';
 }
 function startPenHold(e){
   cancelPenHold();
-  const info = {x:e.clientX, y:e.clientY, target:e.target, pageIdx:activePageIdx, layerIdx:activeLayerIdx};
+  const info = {id:e.pointerId, x:e.clientX, y:e.clientY, target:e.target,
+                pageIdx:activePageIdx, layerIdx:activeLayerIdx};
   penHoldInfo = info;
+  // 링은 조금 늦게 띄운다 — 평범한 필기는 시작하자마자 움직여서 그 전에 취소되므로
+  // 글씨 쓸 때마다 DOM을 건드려 느려지는 일이 없다.
+  penHoldShowTimer = setTimeout(()=>{
+    penHoldShowTimer = null;
+    if(penHoldInfo === info) showPenHoldRing(info.x, info.y);
+  }, PEN_HOLD_SHOW_MS);
   penHoldTimer = setTimeout(()=>{
     penHoldTimer = null;
     if(penHoldInfo !== info) return; // 그 사이에 취소됐으면 무시
     penHoldInfo = null;
+    hidePenHoldRing();
     firePenHold(info);
   }, PEN_HOLD_MS);
 }
@@ -5383,6 +5450,32 @@ function eraseAt(x,y){
   const before = layer.strokes.length;
   layer.strokes = layer.strokes.filter(s=> !s.points.some(p=> Math.hypot(p.x-x,p.y-y) < R));
   if(layer.strokes.length !== before) redrawLayerCanvas(activePageIdx, activeLayerIdx);
+  // 글상자도 같이 지움. 필기는 캔버스 px, 글상자는 CSS 페이지 px라 RES_SCALE로 나눠서 비교한다.
+  eraseTextsAt(activePageIdx, x/RES_SCALE, y/RES_SCALE, R/RES_SCALE);
+}
+/* 지우개 원(중심 cx,cy / 반지름 r, 전부 CSS 페이지 px)에 닿는 글상자를 지운다.
+   글상자는 폭·높이를 데이터로 갖고 있지 않으므로 실제 DOM 요소의 offsetWidth/Height로 사각형을 잡는다
+   (offset*은 레이아웃 크기라 배율의 영향을 받지 않음). 원-사각형 겹침 판정. */
+function eraseTextsAt(pageIdx, cx, cy, r){
+  const page = current.pages[pageIdx];
+  if(!page || !page.texts || !page.texts.length) return false;
+  const block = stackEl.querySelector(`.page-block[data-page-idx="${pageIdx}"]`);
+  let removed = false;
+  for(let i = page.texts.length - 1; i >= 0; i--){
+    const tx = page.texts[i];
+    if(editingText && editingText.t === tx) continue; // 지금 타자 치는 중인 상자는 건드리지 않음
+    const el = block ? block.querySelector(`.page-text[data-id="${tx.id}"]`) : null;
+    const w = el ? el.offsetWidth  : 40;
+    const h = el ? el.offsetHeight : Math.round((tx.size || 20) * 1.4);
+    const nx = Math.max(tx.x, Math.min(cx, tx.x + w)); // 사각형 위에서 원 중심에 가장 가까운 점
+    const ny = Math.max(tx.y, Math.min(cy, tx.y + h));
+    if(Math.hypot(cx - nx, cy - ny) > r) continue;
+    if(selectedText && selectedText.t === tx) clearTextSelection();
+    page.texts.splice(i, 1);
+    if(el) el.remove();
+    removed = true;
+  }
+  return removed;
 }
 
 /* ================= Toolbar ================= */
@@ -5485,6 +5578,8 @@ btnEraser.addEventListener('click', (ev)=>{
     return;
   }
   tool = 'eraser';
+  clearSelection();                          // 다른 도구 버튼과 같게 — 올가미 선택도 풀고
+  commitEditText(); clearTextSelection();    // 글상자 편집/선택도 정리(막대가 남아 지우기를 방해하지 않게)
   document.querySelectorAll('[data-tool]').forEach(b=>b.classList.toggle('active', b===btnEraser));
   stackEl.style.cursor = 'crosshair';
   updateToolUI();
