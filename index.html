@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>NotePen</title>
-<!-- build: 2026-09-15h (선택·글상자 막대가 화면 밖으로 잘리던 문제 수정) -->
+<!-- build: 2026-09-16a (펜으로 꾹 오래 누르면 텍스트 상자) -->
 <style>
   :root{
     --bg: #f4f3f1;
@@ -2632,7 +2632,7 @@ async function openNotebook(id, targetPage, targetShortcutId){
     pdfDoc = null;
     if(current.type==='pdf' && !PDFJS_AVAILABLE) toast('PDF 기능을 불러오지 못했어요. 인터넷 연결을 확인해주세요.');
   }
-  commitEditText(); clearTextSelection(); penTap = null; // 편집 중이던 글상자는 확정하고 상태를 정리
+  commitEditText(); clearTextSelection(); cancelPenHold(); // 편집 중이던 글상자는 확정하고 상태를 정리
   if(pastingInk) setPastingInk(false); // 노트를 옮기면 '놓을 자리 고르기'는 취소
   libraryEl.style.display = 'none';
   editorEl.style.display = 'flex';
@@ -3001,7 +3001,7 @@ function rebuildPageBlock(idx){
 }
 function renderAllPages(){
   if(lazyObserver){ lazyObserver.disconnect(); lazyObserver = null; }
-  editingText = null; selectedText = null; penTap = null; // 화면을 새로 그리면 글상자 편집/선택 상태는 사라짐
+  editingText = null; selectedText = null; cancelPenHold(); // 화면을 새로 그리면 글상자 편집/선택 상태는 사라짐
   clearSelection(); // 페이지를 다시 그리면 선택 상자는 사라지므로 상태도 같이 정리
   stackEl.innerHTML = '';
   const maxW = Math.max(...current.pages.map(p=>p.width));
@@ -4437,6 +4437,8 @@ function onPointerDown(e){
     clearSelection();
     lassoPath = [{x,y}];
   }
+  // 펜으로 꾹 오래 누르기 -> 그 자리에 텍스트 상자 (아래 startPenHold 참고)
+  if(e.pointerType==='pen' && (activeAction==='pen' || activeAction==='pencil')) startPenHold(e);
 }
 let panStart = null;
 let panOverscrollTriggered = false;
@@ -4533,6 +4535,8 @@ function onPointerMove(e){
     updatePageIndicatorFromScroll();
     return;
   }
+  // 펜이 조금이라도 움직이면 '꾹 누르기'가 아니라 필기
+  if(penHoldInfo && Math.hypot(e.clientX - penHoldInfo.x, e.clientY - penHoldInfo.y) > PEN_HOLD_CANCEL_MOVE) cancelPenHold();
   if(!drawing) return;
   let {x,y} = coordFromEvent(e, strokeCanvas);
   if(straightAxis && currentStroke && currentStroke.points.length){
@@ -4601,6 +4605,7 @@ function onPointerMove(e){
 }
 function onPointerUp(e){
   activePointers.delete(e.pointerId);
+  cancelPenHold(); // 손을 떼면 '꾹 누르기'는 끝 (pointercancel도 이 함수로 들어옴)
 
   if(pinchActive){
     if(pinchIds && pinchIds.includes(e.pointerId)){
@@ -4653,14 +4658,9 @@ function onPointerUp(e){
   drawing = false;
   const layer = current.pages[activePageIdx].layers[activeLayerIdx];
   if((activeAction==='pen' || activeAction==='pencil' || activeAction==='highlight') && currentStroke){
-    const justDrawn = currentStroke;
     layer.strokes.push(currentStroke);
     currentStroke = null;
     highlightSnapshot = null;
-    // 펜으로 빠르게 두 번 톡톡 -> 그 자리에 텍스트 상자 (점 두 개는 지움)
-    if(e.pointerType === 'pen' && (activeAction === 'pen' || activeAction === 'pencil')){
-      if(handlePenTap(e, justDrawn, activePageIdx, activeLayerIdx)){ activeAction = null; scheduleSave(); return; }
-    }
   } else if(activeAction==='mask' && maskStart){
     const {x,y} = coordFromEvent(e);
     const rx = Math.min(maskStart.x,x), ry = Math.min(maskStart.y,y);
@@ -5166,36 +5166,37 @@ function createTextBoxAt(e){
   block.appendChild(createTextElement(page, pageIdx, tx));
   startEditText(pageIdx, tx, true);
 }
-/* 펜으로 두 번 톡톡 감지.
-   한 번 톡 칠 때마다 아주 작은 점 하나가 그려지므로, 두 번째를 인정하는 순간 그 점 두 개를 지운다. */
-let penTap = null; // {t, x, y, stroke, pageIdx, layerIdx}
-function isDotStroke(s){
-  if(!s || !s.points || !s.points.length) return false;
-  let x0=Infinity,y0=Infinity,x1=-Infinity,y1=-Infinity;
-  s.points.forEach(p=>{ x0=Math.min(x0,p.x); y0=Math.min(y0,p.y); x1=Math.max(x1,p.x); y1=Math.max(y1,p.y); });
-  return Math.max(x1-x0, y1-y0) < 10 * RES_SCALE;
+/* 펜으로 한 자리를 꾹 오래 누르면 그 자리에 텍스트 상자.
+   누르는 순간 획은 평소처럼 시작되지만, 거의 움직이지 않은 채 PEN_HOLD_MS가 지나면
+   그리던 획을 통째로 버리고(아직 layer.strokes에 넣기 전이라 캔버스만 다시 그리면 됨) 글상자를 연다.
+   조금이라도 움직이거나 그 전에 손을 떼면 그냥 평범한 필기가 된다. */
+const PEN_HOLD_MS = 600;          // 이만큼 누르고 있어야 글상자가 뜸
+const PEN_HOLD_CANCEL_MOVE = 10;  // 화면 px 기준, 이보다 움직이면 '꾹 누르기'가 아니라 필기로 봄
+let penHoldTimer = null, penHoldInfo = null;
+function cancelPenHold(){
+  if(penHoldTimer){ clearTimeout(penHoldTimer); penHoldTimer = null; }
+  penHoldInfo = null;
 }
-function removeStrokeRef(ref){
-  if(!ref) return;
-  const page = current && current.pages[ref.pageIdx];
-  const layer = page && page.layers[ref.layerIdx];
-  if(!layer) return;
-  const i = layer.strokes.indexOf(ref.stroke);
-  if(i >= 0){ layer.strokes.splice(i,1); redrawLayerCanvas(ref.pageIdx, ref.layerIdx); }
+function startPenHold(e){
+  cancelPenHold();
+  const info = {x:e.clientX, y:e.clientY, target:e.target, pageIdx:activePageIdx, layerIdx:activeLayerIdx};
+  penHoldInfo = info;
+  penHoldTimer = setTimeout(()=>{
+    penHoldTimer = null;
+    if(penHoldInfo !== info) return; // 그 사이에 취소됐으면 무시
+    penHoldInfo = null;
+    firePenHold(info);
+  }, PEN_HOLD_MS);
 }
-function handlePenTap(e, stroke, pageIdx, layerIdx){
-  if(!isDotStroke(stroke)){ penTap = null; return false; }
-  const now = Date.now();
-  if(penTap && (now - penTap.t) < 450 && Math.hypot(penTap.x - e.clientX, penTap.y - e.clientY) < 40){
-    const first = penTap;
-    penTap = null;
-    removeStrokeRef(first);
-    removeStrokeRef({stroke, pageIdx, layerIdx});
-    createTextBoxAt(e);
-    return true;
-  }
-  penTap = {t: now, x: e.clientX, y: e.clientY, stroke, pageIdx, layerIdx};
-  return false;
+function firePenHold(info){
+  drawing = false;
+  currentStroke = null;
+  highlightSnapshot = null;
+  activeAction = null;
+  history.pop(); // pointerdown에서 미리 쌓아둔 되돌리기 기록은 획을 버렸으니 같이 버림
+  redrawLayerCanvas(info.pageIdx, info.layerIdx); // 누르는 동안 찍힌 점을 지움
+  if(navigator.vibrate) { try { navigator.vibrate(20); } catch(_){} } // 글상자가 떴다는 손끝 신호
+  createTextBoxAt({clientX:info.x, clientY:info.y, target:info.target});
 }
 
 /* ================= 올가미로 고른 것 복사·잘라내기·붙여넣기 =================
