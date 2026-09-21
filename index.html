@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>NotePen</title>
-<!-- build: 2026-09-21a (필기 곡선 부드럽게 + 엔터 두 번으로 글상자 확정 + 새 버전 자동 확인) -->
+<!-- build: 2026-09-21b (고른 글상자를 Delete로 삭제 / F2로 편집) -->
 <style>
   :root{
     --bg: #f4f3f1;
@@ -2801,13 +2801,28 @@ document.addEventListener('keydown', (e)=>{
   if(e.ctrlKey || e.metaKey || e.altKey) return;
   if(e.isComposing || e.keyCode === 229) return; // 한글 조합 중
   if(hotkeyInputBusy() || hotkeyPopupOpen()) return;
-  // 글상자를 고른 상태에서 Enter(또는 Escape)를 한 번 더 누르면 선택을 풀어 배경에 박히게 함.
-  // 빈 화면을 손으로 누르는 것과 같은 효과 — 타자를 끝낸 Enter는 글상자 textarea가
-  // stopPropagation으로 막아주므로 여기까지 오지 않는다(한 번에 둘 다 일어나지 않음).
-  if(selectedText && (e.key === 'Enter' || e.key === 'Escape')){
-    e.preventDefault();
-    clearTextSelection();
-    return;
+  /* 글상자를 고른 상태(테두리가 보이는 상태)에서 쓰는 키들.
+     타자를 치는 중에는 글상자 textarea가 stopPropagation으로 막아주므로 여기까지 오지 않는다
+     (그래서 입력을 끝내는 Enter와 아래 Enter가 한 번에 둘 다 일어나지 않음). */
+  if(selectedText){
+    // Enter / Escape : 선택을 풀어 배경에 박히게 함 (빈 화면을 손으로 누르는 것과 같은 효과)
+    if(e.key === 'Enter' || e.key === 'Escape'){
+      e.preventDefault();
+      clearTextSelection();
+      return;
+    }
+    // Delete / Backspace : 고른 글상자를 통째로 지움 (되돌리기 한 번으로 복구됨)
+    if(e.key === 'Delete' || e.key === 'Backspace'){
+      e.preventDefault();
+      deleteTextBox(selectedText.pageIdx, selectedText.t);
+      return;
+    }
+    // F2 : 커서를 넣어 글자 고치기 (막대의 '✎ 편집', 두 번 탭과 같은 동작)
+    if(e.key === 'F2'){
+      e.preventDefault();
+      startEditText(selectedText.pageIdx, selectedText.t, false);
+      return;
+    }
   }
   if(e.key === 'Tab'){
     e.preventDefault();
@@ -5156,10 +5171,10 @@ function buildTextBar(pageIdx, tx, el, editing){
   if(editing){
     bar.appendChild(mk('✓ 완료','입력 끝내기 (Enter)', ()=> commitEditText()));
   } else {
-    bar.appendChild(mk('✎ 편집','글자 고치기', ()=> startEditText(pageIdx, tx, false)));
+    bar.appendChild(mk('✎ 편집','글자 고치기 (F2)', ()=> startEditText(pageIdx, tx, false)));
   }
-  bar.appendChild(mk('🗑','이 글상자 지우기', ()=> deleteTextBox(pageIdx, tx)));
-  if(!editing) bar.appendChild(mk('✕','선택 해제', ()=> clearTextSelection()));
+  bar.appendChild(mk('🗑','이 글상자 지우기 (Delete)', ()=> deleteTextBox(pageIdx, tx)));
+  if(!editing) bar.appendChild(mk('✕','선택 해제 (Enter)', ()=> clearTextSelection()));
   setTimeout(()=> placeTextBar(bar), 0);
   return bar;
 }
@@ -6504,7 +6519,7 @@ qmLoad();
    - 파일 앞 2KB만 Range로 받아 확인하므로 데이터를 거의 안 씀(서버가 Range를 무시해도 동작은 함)
    - 캐시를 확실히 피하려고 일회용 ?nc= 를 붙여서 받음(브라우저가 그 주소를 캐시해도 다음엔 다른 번호라 무해)
    - GitHub Pages는 max-age=600이라 그냥 둬도 10분 뒤엔 새 파일을 받지만, 그걸 기다리지 않고 알려주기 위함 */
-const APP_BUILD = '2026-09-21a';
+const APP_BUILD = '2026-09-21b';
 const UPDATE_RECHECK_MS = 10 * 60 * 1000;
 let updateBannerShown = false, lastUpdateCheck = 0;
 function appBaseUrl(){ return location.pathname.replace(/[^/]*$/, ''); }
