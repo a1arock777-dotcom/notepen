@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>NotePen</title>
-<!-- build: 2026-09-16c (Ctrl+Q로 꾹 눌러 글상자 만들기 켜기/끄기) -->
+<!-- build: 2026-09-21a (필기 곡선 부드럽게 + 엔터 두 번으로 글상자 확정 + 새 버전 자동 확인) -->
 <style>
   :root{
     --bg: #f4f3f1;
@@ -491,6 +491,21 @@
   .page-image.img-moving .img-head{ background:rgba(217,98,43,0.88); cursor:grabbing; }
 
   /* ---------- 노트 위에 붙이는 새 노트 바로가기 아이콘 ---------- */
+  /* ---------- 새 버전 알림 띠 (주소에 ?v= 를 붙이지 않아도 되게 함) ---------- */
+  #update-banner{
+    display:none; position:fixed; left:50%; transform:translateX(-50%); top:8px;
+    z-index:9500; align-items:center; gap:8px; max-width:92vw;
+    padding:8px 10px 8px 14px; border-radius:999px;
+    font-size:12.5px; font-weight:700; color:#fff;
+    background:rgba(38,38,38,0.94); box-shadow:0 4px 16px rgba(0,0,0,0.32);
+  }
+  #update-banner span{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  #update-banner button{
+    flex:0 0 auto; border:none; border-radius:999px; padding:6px 12px;
+    font-size:12px; font-weight:700; cursor:pointer;
+  }
+  #update-banner-go{ background:var(--accent); color:#fff; }
+  #update-banner-later{ background:rgba(255,255,255,0.16); color:#fff; }
   /* ---------- 펜으로 꾹 누르는 중임을 알려주는 링 ---------- */
   /* position:fixed라 배율(#page-stack의 scale)에 휩쓸리지 않고 항상 같은 크기로 보임 */
   .pen-hold-ring{
@@ -1123,6 +1138,11 @@
     <button type="button" id="sync-banner-later">나중에</button>
   </div>
   <div class="toast" id="toast"></div>
+</div>
+<div id="update-banner">
+  <span>새 버전이 나왔어요</span>
+  <button type="button" id="update-banner-go">새로고침</button>
+  <button type="button" id="update-banner-later">나중에</button>
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
@@ -2781,6 +2801,14 @@ document.addEventListener('keydown', (e)=>{
   if(e.ctrlKey || e.metaKey || e.altKey) return;
   if(e.isComposing || e.keyCode === 229) return; // 한글 조합 중
   if(hotkeyInputBusy() || hotkeyPopupOpen()) return;
+  // 글상자를 고른 상태에서 Enter(또는 Escape)를 한 번 더 누르면 선택을 풀어 배경에 박히게 함.
+  // 빈 화면을 손으로 누르는 것과 같은 효과 — 타자를 끝낸 Enter는 글상자 textarea가
+  // stopPropagation으로 막아주므로 여기까지 오지 않는다(한 번에 둘 다 일어나지 않음).
+  if(selectedText && (e.key === 'Enter' || e.key === 'Escape')){
+    e.preventDefault();
+    clearTextSelection();
+    return;
+  }
   if(e.key === 'Tab'){
     e.preventDefault();
     jumpToPrevNote();
@@ -3157,12 +3185,68 @@ function drawHighlightStroke(ctx, s){
   // 세그먼트마다 따로 stroke()하면 겹치는 이음새(둥근 caps/joins)가 여러 번 겹쳐 칠해져 진하기가 들쭉날쭉해짐.
   // 경로 전체를 하나로 이어서 단 한 번만 stroke()해야 투명도가 균일하게 적용됨.
   ctx.beginPath();
-  ctx.moveTo(s.points[0].x, s.points[0].y);
-  for(let i=1;i<s.points.length;i++){
-    ctx.lineTo(s.points[i].x, s.points[i].y);
-  }
+  highlightPath(ctx, s.points);
   ctx.stroke();
   ctx.restore();
+}
+/* 형광펜: 경로 전체를 한 번에 이어 그림(세그먼트마다 stroke하면 이음새가 겹쳐 진해짐).
+   펜과 같은 중점-2차베지에 곡선을 쓴다. */
+function highlightPath(ctx, pts){
+  ctx.moveTo(pts[0].x, pts[0].y);
+  for(let i=1;i<pts.length;i++){
+    const a = pts[i-1], b = pts[i];
+    ctx.quadraticCurveTo(a.x, a.y, (a.x+b.x)/2, (a.y+b.y)/2);
+  }
+  ctx.lineTo(pts[pts.length-1].x, pts[pts.length-1].y); // 마지막 점까지 꼬리
+}
+/* S펜은 화면 주사율(60Hz)보다 훨씬 자주(120~240Hz) 좌표를 찍는데, 브라우저는 그 사이 좌표들을
+   pointermove 하나에 묶어서 준다. getCoalescedEvents()로 꺼내 쓰지 않으면 빠르게 그을 때
+   좌표가 듬성듬성해져서 획이 각진 다각형처럼 보인다.
+   (합성 이벤트는 빈 배열을 주므로 그때는 이벤트 자체를 그대로 씀) */
+function coalescedOf(e){
+  if(typeof e.getCoalescedEvents === 'function'){
+    try{ const l = e.getCoalescedEvents(); if(l && l.length) return l; }catch(err){}
+  }
+  return [e];
+}
+// 화면에서 이만큼도 안 움직였으면 같은 점으로 보고 버림 — 좌표 수(=저장 용량)가 불필요하게 불어나는 것을 막음.
+// 화면 px 기준이라 확대/축소 배율과 무관하게 일정하다.
+const MIN_MOVE_PX = 1.0;
+// ⚠️ 이 보조 상태를 획 객체에 달면 그대로 저장·동기화돼버리므로 반드시 바깥에 둘 것
+let lastPtScreen = null;
+function pushStrokePoint(stroke, ev){
+  if(lastPtScreen && Math.hypot(ev.clientX - lastPtScreen.x, ev.clientY - lastPtScreen.y) < MIN_MOVE_PX) return false;
+  lastPtScreen = {x: ev.clientX, y: ev.clientY};
+  let {x,y} = coordFromEvent(ev, strokeCanvas);
+  const pts = stroke.points;
+  if(straightAxis && pts.length){ // 일직선 고정 모드: 시작점의 좌표로 한 축을 묶음
+    if(straightAxis === 'h') y = pts[0].y; else x = pts[0].x;
+  }
+  if(stroke.type === 'highlight') pts.push({x,y});
+  else pts.push({x, y, p: Math.round((ev.pressure||0.5)*100)/100});
+  return true;
+}
+/* 점과 점을 직선으로 잇지 않고 '이웃한 점의 중점끼리'를 그 점을 제어점으로 하는 2차 베지에로 잇는다.
+   이렇게 하면 꺾이는 자리가 둥글게 이어져서, 빠르게 그어 점 간격이 벌어져도 각진 다각형처럼 보이지 않는다.
+   ⚠️ 그리는 중(onPointerMove)과 다시 그릴 때(drawStroke)가 반드시 같은 식을 써야 손을 뗀 뒤 모양이 안 변함
+      -> 두 곳 모두 이 함수 하나만 쓸 것. */
+function strokeQuadSegment(ctx, pts, i, color, size, withTail){
+  const a = pts[i-1], b = pts[i];
+  ctx.lineJoin='round'; ctx.lineCap='round'; ctx.strokeStyle = color;
+  ctx.lineWidth = Math.max(0.6, size * RES_SCALE * (0.5 + (b.p||0.5)));
+  const sx = (i >= 2) ? (pts[i-2].x + a.x)/2 : a.x;   // 앞 구간과 만나는 중점
+  const sy = (i >= 2) ? (pts[i-2].y + a.y)/2 : a.y;
+  const ex = (a.x + b.x)/2, ey = (a.y + b.y)/2;       // 다음 구간과 만나는 중점
+  ctx.beginPath();
+  ctx.moveTo(sx, sy);
+  ctx.quadraticCurveTo(a.x, a.y, ex, ey);
+  if(withTail) ctx.lineTo(b.x, b.y);                 // 마지막 점까지 꼬리를 채움
+  ctx.stroke();
+}
+/* 2차 베지에 위의 한 점 (연필 점찍기용) */
+function quadAt(sx, sy, cx, cy, ex, ey, t){
+  const m = 1 - t;
+  return { x: m*m*sx + 2*m*t*cx + t*t*ex, y: m*m*sy + 2*m*t*cy + t*t*ey };
 }
 function drawStroke(ctx, s){
   if(s.type === 'pencil'){ drawPencilStroke(ctx, s); return; }
@@ -3175,12 +3259,8 @@ function drawStroke(ctx, s){
     }
     return;
   }
-  ctx.lineJoin='round'; ctx.lineCap='round'; ctx.strokeStyle=s.color;
-  for(let i=1;i<s.points.length;i++){
-    const a = s.points[i-1], b = s.points[i];
-    ctx.lineWidth = Math.max(0.6, s.size * RES_SCALE * (0.5 + (b.p||0.5)));
-    ctx.beginPath(); ctx.moveTo(a.x,a.y); ctx.lineTo(b.x,b.y); ctx.stroke();
-  }
+  const n = s.points.length;
+  for(let i=1;i<n;i++) strokeQuadSegment(ctx, s.points, i, s.color, s.size, i === n-1);
 }
 // 연필처럼 거친 질감을 흉내내는 렌더러. 매번 같은 좌표에서는 항상 같은 결과가 나오도록
 // Math.random() 대신 좌표 기반의 결정론적 의사난수를 사용한다 (다시 그려도 흔들리지 않음).
@@ -3207,18 +3287,44 @@ function drawPencilStroke(ctx, s){
     const p = s.points[0];
     for(let i=0;i<6;i++) drawPencilDab(ctx, p.x, p.y, s.size, s.color);
   } else {
-    for(let i=1;i<s.points.length;i++){
-      const a = s.points[i-1], b = s.points[i];
-      const dx=b.x-a.x, dy=b.y-a.y;
-      const dist = Math.hypot(dx,dy);
-      const steps = Math.max(1, Math.ceil(dist/(1.6*RES_SCALE)));
-      for(let j=0;j<=steps;j++){
-        const t = j/steps;
-        drawPencilDab(ctx, a.x+dx*t, a.y+dy*t, s.size, s.color);
-      }
-    }
+    const n = s.points.length;
+    for(let i=1;i<n;i++) pencilQuadSegment(ctx, s.points, i, s.size, s.color, i === n-1);
   }
   ctx.restore();
+}
+/* 연필도 펜과 같은 곡선(중점-2차베지에)을 따라 점을 찍는다 — 직선으로 이으면 꺾이는 자리가 각져 보임 */
+function pencilQuadSegment(ctx, pts, i, size, color, withTail){
+  const a = pts[i-1], b = pts[i];
+  const sx = (i >= 2) ? (pts[i-2].x + a.x)/2 : a.x;
+  const sy = (i >= 2) ? (pts[i-2].y + a.y)/2 : a.y;
+  const ex = (a.x + b.x)/2, ey = (a.y + b.y)/2;
+  const span = Math.hypot(ex-sx, ey-sy) + Math.hypot(a.x-sx, a.y-sy);
+  const steps = Math.max(1, Math.ceil(span/(1.6*RES_SCALE)));
+  for(let j=0;j<=steps;j++){
+    const q = quadAt(sx, sy, a.x, a.y, ex, ey, j/steps);
+    drawPencilDab(ctx, q.x, q.y, size, color);
+  }
+  if(withTail){ // 마지막 점까지 꼬리를 채움
+    const d = Math.hypot(b.x-ex, b.y-ey);
+    const n = Math.max(1, Math.ceil(d/(1.6*RES_SCALE)));
+    for(let j=1;j<=n;j++) drawPencilDab(ctx, ex+(b.x-ex)*j/n, ey+(b.y-ey)*j/n, size, color);
+  }
+}
+/* ⚠️ 꼬리(마지막 중점 → 마지막 점)는 획이 끝날 때 한 번만 그릴 것.
+   그리는 중에 매번 그리면 다음 곡선이 그 꼬리를 완전히 덮지 못해서(곡선은 제어점을 지나지 않음)
+   손을 뗀 뒤 다시 그렸을 때 모서리가 살짝 뭉툭해지는 차이가 생긴다. */
+function finishStrokeTail(s){
+  const pts = s && s.points;
+  if(!strokeCtx || !pts || pts.length < 2) return;
+  const i = pts.length - 1;
+  if(s.type === 'pen'){
+    strokeQuadSegment(strokeCtx, pts, i, s.color, s.size, true);
+  } else if(s.type === 'pencil'){
+    strokeCtx.save(); strokeCtx.fillStyle = s.color;
+    pencilQuadSegment(strokeCtx, pts, i, s.size, s.color, true);
+    strokeCtx.restore();
+  }
+  // 형광펜은 움직일 때마다 경로 전체를 꼬리까지 다시 그리므로 따로 할 일이 없음
 }
 function drawMask(ctx, m){
   ctx.save();
@@ -4453,6 +4559,7 @@ function onPointerDown(e){
   }
 
   drawing = true;
+  lastPtScreen = {x: e.clientX, y: e.clientY}; // 좌표 솎아내기 기준점 (pushStrokePoint 참고)
   // 지우개는 글상자(개체)도 지우므로 개체 목록까지 담은 스냅샷이 필요함
   pushHistory(activeAction==='eraser' ? snapshotPage(activePageIdx)
                                       : snapshotLayer(activePageIdx, activeLayerIdx));
@@ -4586,38 +4693,27 @@ function onPointerMove(e){
     else x = currentStroke.points[0].x;
   }
   if(activeAction==='pen' && currentStroke){
-    currentStroke.points.push({x,y,p:Math.round((e.pressure||0.5)*100)/100});
-    const ctx = strokeCtx;
     const pts = currentStroke.points;
-    const a = pts[pts.length-2], b = pts[pts.length-1];
-    if(a){
-      ctx.lineJoin='round'; ctx.lineCap='round'; ctx.strokeStyle=color;
-      ctx.lineWidth = Math.max(0.6, size*RES_SCALE*(0.5+(b.p||0.5)));
-      ctx.beginPath(); ctx.moveTo(a.x,a.y); ctx.lineTo(b.x,b.y); ctx.stroke();
+    for(const ev of coalescedOf(e)){
+      if(!pushStrokePoint(currentStroke, ev)) continue;
+      strokeQuadSegment(strokeCtx, pts, pts.length-1, color, size, false);
     }
   } else if(activeAction==='pencil' && currentStroke){
-    currentStroke.points.push({x,y,p:Math.round((e.pressure||0.5)*100)/100});
-    const ctx = strokeCtx;
     const pts = currentStroke.points;
-    const a = pts[pts.length-2], b = pts[pts.length-1];
-    if(a){
-      ctx.save(); ctx.fillStyle = color;
-      const dx=b.x-a.x, dy=b.y-a.y;
-      const dist = Math.hypot(dx,dy);
-      const steps = Math.max(1, Math.ceil(dist/(1.6*RES_SCALE)));
-      for(let j=0;j<=steps;j++){
-        const t = j/steps;
-        drawPencilDab(ctx, a.x+dx*t, a.y+dy*t, size, color);
-      }
-      ctx.restore();
+    strokeCtx.save(); strokeCtx.fillStyle = color;
+    for(const ev of coalescedOf(e)){
+      if(!pushStrokePoint(currentStroke, ev)) continue;
+      pencilQuadSegment(strokeCtx, pts, pts.length-1, size, color, false);
     }
+    strokeCtx.restore();
   } else if(activeAction==='highlight' && currentStroke){
-    currentStroke.points.push({x,y});
-    const ctx = strokeCtx;
     const pts = currentStroke.points;
-    if(pts.length >= 2){
+    let added = false;
+    for(const ev of coalescedOf(e)){ if(pushStrokePoint(currentStroke, ev)) added = true; }
+    if(added && pts.length >= 2){
       // 매번 획 시작 시점 스냅샷으로 복원한 뒤, 지금까지의 전체 경로를 한 번에 이어그려서
       // 겹치는 부분이 여러 번 칠해져 진해지는 것을 막고 투명도를 항상 균일하게 유지함.
+      const ctx = strokeCtx;
       if(highlightSnapshot) ctx.putImageData(highlightSnapshot, 0, 0);
       ctx.save();
       ctx.globalAlpha = currentStroke.opacity;
@@ -4625,8 +4721,7 @@ function onPointerMove(e){
       ctx.lineJoin='round'; ctx.lineCap='round'; ctx.strokeStyle = currentStroke.color;
       ctx.lineWidth = highlightLineWidth(currentStroke.size);
       ctx.beginPath();
-      ctx.moveTo(pts[0].x, pts[0].y);
-      for(let i=1;i<pts.length;i++){ ctx.lineTo(pts[i].x, pts[i].y); }
+      highlightPath(ctx, pts);
       ctx.stroke();
       ctx.restore();
     }
@@ -4699,6 +4794,7 @@ function onPointerUp(e){
   drawing = false;
   const layer = current.pages[activePageIdx].layers[activeLayerIdx];
   if((activeAction==='pen' || activeAction==='pencil' || activeAction==='highlight') && currentStroke){
+    finishStrokeTail(currentStroke); // 마지막 점까지 꼬리 채우기 (위 주석 참고)
     layer.strokes.push(currentStroke);
     currentStroke = null;
     highlightSnapshot = null;
@@ -6402,12 +6498,49 @@ document.getElementById('qm-close').addEventListener('click', ()=>{
 document.getElementById('quickmemo-panel').addEventListener('click', (e)=> e.stopPropagation());
 qmLoad();
 
+/* ================= 새 버전 자동 확인 =================
+   주소 뒤에 ?v= 를 손으로 붙이지 않아도 되게, 앱이 스스로 서버의 빌드 표식을 읽어보고
+   지금 돌고 있는 것과 다르면 새로고침 띠를 띄운다.
+   - 파일 앞 2KB만 Range로 받아 확인하므로 데이터를 거의 안 씀(서버가 Range를 무시해도 동작은 함)
+   - 캐시를 확실히 피하려고 일회용 ?nc= 를 붙여서 받음(브라우저가 그 주소를 캐시해도 다음엔 다른 번호라 무해)
+   - GitHub Pages는 max-age=600이라 그냥 둬도 10분 뒤엔 새 파일을 받지만, 그걸 기다리지 않고 알려주기 위함 */
+const APP_BUILD = '2026-09-21a';
+const UPDATE_RECHECK_MS = 10 * 60 * 1000;
+let updateBannerShown = false, lastUpdateCheck = 0;
+function appBaseUrl(){ return location.pathname.replace(/[^/]*$/, ''); }
+async function checkForUpdate(){
+  if(updateBannerShown) return;
+  const now = Date.now();
+  if(now - lastUpdateCheck < UPDATE_RECHECK_MS) return;
+  lastUpdateCheck = now;
+  try{
+    const r = await fetch(appBaseUrl() + 'index.html?nc=' + now,
+                          {cache:'no-store', headers:{'Range':'bytes=0-2047'}});
+    if(!r.ok && r.status !== 206) return;
+    const head = await r.text();
+    const m = head.match(/<!--\s*build:\s*([^\s(]+)/);
+    if(!m || m[1] === APP_BUILD) return;   // 표식을 못 찾으면 섣불리 알리지 않음
+    updateBannerShown = true;
+    const b = document.getElementById('update-banner');
+    if(b) b.style.display = 'flex';
+  }catch(e){ /* 인터넷이 없거나 막히면 그냥 넘어감 */ }
+}
+document.getElementById('update-banner-go').addEventListener('click', ()=>{
+  // 일회용 번호를 붙여 다시 엶 — 사용자가 주소에 ?v= 를 직접 붙일 필요가 없음
+  location.replace(appBaseUrl() + '?v=' + Date.now());
+});
+document.getElementById('update-banner-later').addEventListener('click', ()=>{
+  document.getElementById('update-banner').style.display = 'none';
+});
+document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) checkForUpdate(); });
+
 /* ================= Init ================= */
 refreshLibrary();
 initStorageSafety(); // 브라우저가 노트를 함부로 지우지 못하게 영구 저장 권한을 요청
 loadInkClip();       // 지난번에 올가미로 복사해둔 것이 있으면 되살림(앱을 다시 열어도 붙여넣을 수 있게)
 loadTextStyle();     // 마지막으로 쓴 글자 크기·색 (새 버전을 받아도 그대로 유지)
 loadPenHoldEnabled();// 꾹 눌러 글상자 만들기를 껐었다면 꺼진 채로 시작 (Ctrl+Q)
+setTimeout(checkForUpdate, 4000); // 앱 여는 속도를 방해하지 않도록 조금 뒤에 확인
 </script>
 </body>
 </html>
