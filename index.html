@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>NotePen</title>
-<!-- build: 2026-09-27a (필기 인식 수정: 점 하나·손바닥 닿음·화면 밖에서 손 뗌) -->
+<!-- build: 2026-09-30a (폴더 목록 기기 간 동기화 + 폴더 이동 동기화) -->
 <style>
   :root{
     --bg: #f4f3f1;
@@ -1355,9 +1355,61 @@ async function syncDeleteNotebook(id){
     await fbStorage.ref(`users/${fbUser.uid}/pdfs/${id}.pdf`).delete().catch(()=>{});
   }catch(err){ console.error('동기화 삭제 실패', err); }
 }
+/* ---------- 폴더 목록 동기화 (2026-09-30) ----------
+   폴더 목록은 원래 이 기기의 localStorage에만 있어서 다른 기기에 폴더가 안 생겼음.
+   users/{uid}/meta/folders 문서 하나에 {list, tombs}를 두고, 받을 때마다 이 기기 목록과 합친다.
+   합친 결과가 클라우드와 다르면(이 기기에만 있는 폴더가 있으면) 다시 올린다 → 모든 기기가 같은 목록으로 모임. */
+let fbFolderUnsub = null;
+let lastRemoteFolderKey = null; // 마지막으로 클라우드에서 본(또는 올린) 폴더 상태
+function folderDocRef(){ return fbDb.collection('users').doc(fbUser.uid).collection('meta').doc('folders'); }
+async function syncPushFolders(){
+  if(!fbUser || !fbDb) return;
+  const key = folderStateKey(folders, folderTombs);
+  if(key === lastRemoteFolderKey) return; // 클라우드와 이미 같음
+  try{
+    await folderDocRef().set({
+      list: folders.map(f=>({id:f.id, name:String(f.name == null ? '' : f.name), updatedAt: Number(f.updatedAt) || 0})),
+      tombs: Object.assign({}, folderTombs),
+      updatedAt: Date.now()
+    });
+    lastRemoteFolderKey = key;
+  }catch(err){ console.error('폴더 동기화 업로드 실패', err); }
+}
+function applyRemoteFolders(rList, rTombs, exists){
+  const r = mergeFolderState(rList, rTombs, [], {});
+  lastRemoteFolderKey = exists ? folderStateKey(r.list, r.tombs) : null;
+  const before = folderStateKey(folders, folderTombs);
+  const m = mergeFolderState(folders, folderTombs, r.list, r.tombs);
+  const after = folderStateKey(m.list, m.tombs);
+  if(after !== before || folders.some(f=> typeof f.updatedAt !== 'number')){
+    folders = m.list; folderTombs = m.tombs;
+    saveFolders({skipSync:true});
+    if(activeFolderId && !folders.some(f=>f.id===activeFolderId)) activeFolderId = null;
+    if(after !== before){
+      const lib = document.getElementById('library');
+      if(lib && lib.style.display !== 'none'){ renderFolderTabs(); renderGrid(); }
+    }
+  }
+  if(after !== lastRemoteFolderKey) syncPushFolders();
+}
+function syncStartFolderListening(){
+  if(!fbUser || !fbDb) return;
+  if(fbFolderUnsub){ fbFolderUnsub(); fbFolderUnsub = null; }
+  lastRemoteFolderKey = null;
+  fbFolderUnsub = folderDocRef().onSnapshot(snap=>{
+    const d = snap.exists ? (snap.data() || {}) : {};
+    applyRemoteFolders(d.list || [], d.tombs || {}, !!snap.exists);
+  }, err=> console.error('폴더 동기화 수신 오류', err));
+}
+function syncStopFolderListening(){
+  if(fbFolderUnsub){ fbFolderUnsub(); fbFolderUnsub = null; }
+  lastRemoteFolderKey = null;
+}
+
 /* 다른 기기에서 바뀐 내용을 실시간으로 받아서 이 기기 로컬 저장소에 반영 */
 function syncStartListening(){
   if(!fbUser || !fbDb) return;
+  syncStartFolderListening();
   if(fbUnsub){ fbUnsub(); fbUnsub = null; }
   fbUnsub = fbDb.collection('users').doc(fbUser.uid).collection('notebooks')
     .onSnapshot(async (snap)=>{
@@ -1484,6 +1536,7 @@ document.getElementById('fb-reset-config').onclick = ()=>{
   if(!confirm('설정을 다시 입력할까요? (로그아웃되고, 이 기기의 자동 동기화가 꺼져요)')) return;
   localStorage.removeItem('notepen_fb_config');
   if(fbUnsub){ fbUnsub(); fbUnsub = null; }
+  syncStopFolderListening();
   if(fbAuth) fbAuth.signOut().catch(()=>{});
   fbApp = null; fbAuth = null; fbDb = null; fbStorage = null; fbUser = null;
   updateSyncBadge();
@@ -1528,6 +1581,7 @@ document.getElementById('fb-signup').onclick = async ()=>{
 document.getElementById('fb-signout').onclick = async ()=>{
   if(fbAuth) await fbAuth.signOut().catch(()=>{});
   if(fbUnsub){ fbUnsub(); fbUnsub = null; }
+  syncStopFolderListening();
   toast('로그아웃했어요.');
 };
 /* ---------- 설정 링크: 다른 기기로 firebaseConfig 옮기기 ----------
@@ -1627,9 +1681,45 @@ const libCount = document.getElementById('lib-count');
 /* ---------- 폴더 ---------- */
 let folders = [];
 try{ folders = JSON.parse(localStorage.getItem('notepen_folders') || '[]'); }catch(err){ folders = []; }
+if(!Array.isArray(folders)) folders = [];
+// 지운 폴더 기록(id → 지운 시각). 다른 기기가 옛 목록을 올려도 지운 폴더가 되살아나지 않게 함.
+let folderTombs = {};
+try{ folderTombs = JSON.parse(localStorage.getItem('notepen_folder_tombs') || '{}') || {}; }catch(err){ folderTombs = {}; }
+if(typeof folderTombs !== 'object' || Array.isArray(folderTombs)) folderTombs = {};
 let activeFolderId = null; // null = 전체
-function saveFolders(){
+function saveFolders(opts){
   try{ localStorage.setItem('notepen_folders', JSON.stringify(folders)); }catch(err){ /* ignore */ }
+  try{ localStorage.setItem('notepen_folder_tombs', JSON.stringify(folderTombs)); }catch(err){ /* ignore */ }
+  if(!(opts && opts.skipSync)) syncPushFolders();
+}
+/* 폴더 목록 두 벌을 합친다(순서: a의 순서 → b에만 있는 것은 뒤에).
+   - 같은 id는 updatedAt이 더 큰 쪽(이름 바꾼 쪽)을 씀. updatedAt이 없던 옛 폴더는 0으로 봄
+   - 지운 기록(tombs)은 양쪽 중 늦은 시각. 지운 시각 >= 폴더 updatedAt 이면 지워진 것으로 봄
+   합치는 순서를 바꿔도 결과 집합이 같아서(교환법칙) 두 기기가 동시에 올려도 결국 같은 상태로 모인다. */
+function mergeFolderState(aList, aTombs, bList, bTombs){
+  const tombs = {};
+  [aTombs || {}, bTombs || {}].forEach(t=>{
+    Object.keys(t).forEach(id=>{ const v = Number(t[id]) || 0; if(!(id in tombs) || v > tombs[id]) tombs[id] = v; });
+  });
+  const byId = new Map(); const order = [];
+  [aList || [], bList || []].forEach(list=>{
+    (Array.isArray(list) ? list : []).forEach(f=>{
+      if(!f || typeof f.id !== 'string' || !f.id) return;
+      const item = {id:f.id, name:String(f.name == null ? '' : f.name), updatedAt: Number(f.updatedAt) || 0};
+      const prev = byId.get(f.id);
+      if(!prev){ byId.set(f.id, item); order.push(f.id); }
+      else if(item.updatedAt > prev.updatedAt) byId.set(f.id, item);
+    });
+  });
+  const list = order.map(id=>byId.get(id)).filter(f=> !(f.id in tombs) || tombs[f.id] < f.updatedAt);
+  return {list, tombs};
+}
+// 두 상태가 같은지 비교용(순서 무시)
+function folderStateKey(list, tombs){
+  const l = (list || []).map(f=>[f.id, String(f.name == null ? '' : f.name), Number(f.updatedAt) || 0])
+    .sort((a,b)=> a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0);
+  const t = Object.keys(tombs || {}).sort().map(k=>[k, Number(tombs[k]) || 0]);
+  return JSON.stringify([l, t]);
 }
 function folderName(id){
   const f = folders.find(x=>x.id===id);
@@ -1690,6 +1780,7 @@ function renderFolderTabs(){
       const newName = prompt('폴더 이름 수정', f.name);
       if(newName && newName.trim()){
         f.name = newName.trim();
+        f.updatedAt = Date.now();
         saveFolders();
         renderFolderTabs();
       }
@@ -1700,9 +1791,11 @@ function renderFolderTabs(){
       e.stopPropagation();
       if(!confirm(`"${f.name}" 폴더를 삭제할까요? (노트는 지워지지 않고 미분류로 이동해요)`)) return;
       folders = folders.filter(x=>x.id!==f.id);
+      folderTombs[f.id] = Math.max(Date.now(), (Number(f.updatedAt) || 0) + 1);
       saveFolders();
       const affected = notebooks.filter(nb=>nb.folderId===f.id);
-      for(const nb of affected){ nb.folderId = null; await dbPut(nb); }
+      // updatedAt을 올려야 다른 기기가 '더 최신'으로 받아들임(안 올리면 폴더 소속 변경이 전달되지 않음)
+      for(const nb of affected){ nb.folderId = null; nb.updatedAt = Date.now(); await dbPut(nb); }
       if(activeFolderId===f.id) activeFolderId = null;
       refreshLibrary();
     });
@@ -1718,7 +1811,7 @@ function renderFolderTabs(){
   addChip.addEventListener('click', ()=>{
     const name = prompt('새 폴더 이름');
     if(name && name.trim()){
-      const f = {id:'f_'+Date.now()+'_'+Math.random().toString(36).slice(2,6), name:name.trim()};
+      const f = {id:'f_'+Date.now()+'_'+Math.random().toString(36).slice(2,6), name:name.trim(), updatedAt: Date.now()};
       folders.push(f);
       saveFolders();
       activeFolderId = f.id;
@@ -2029,7 +2122,8 @@ function openFolderMovePopover(target, anchorEl){
     row.textContent = opt.name;
     row.addEventListener('click', async (e)=>{
       e.stopPropagation();
-      for(const nb of nbs){ nb.folderId = opt.id; await dbPut(nb); }
+      // updatedAt을 올려야 다른 기기가 이 이동을 받아들임(안 올리면 '내 쪽이 최신'으로 보고 무시함)
+      for(const nb of nbs){ nb.folderId = opt.id; nb.updatedAt = Date.now(); await dbPut(nb); }
       pop.classList.remove('open');
       if(nbs.length > 1){ toast(nbs.length + '개를 "' + opt.name + '"(으)로 옮겼어요'); exitSelectMode(); }
       refreshLibrary();
@@ -2110,7 +2204,7 @@ document.getElementById('sb-move').addEventListener('click', (e)=>{
 document.getElementById('sb-unfile').addEventListener('click', async ()=>{
   const picked = selectedNotebooks();
   if(!picked.length) return;
-  for(const nb of picked){ nb.folderId = null; await dbPut(nb); }
+  for(const nb of picked){ nb.folderId = null; nb.updatedAt = Date.now(); await dbPut(nb); }
   toast(picked.length + '개를 폴더에서 뺐어요');
   exitSelectMode();
   refreshLibrary();
@@ -2362,8 +2456,15 @@ async function importBackup(file){
     if(sEntry && document.getElementById('backup-restore-settings').checked){
       try{
         const s = JSON.parse(dec.decode(await zipBytes(zip, sEntry)));
+        const foldersBefore = folders;
         Object.keys(s).forEach(key=>{ if(BACKUP_SETTING_KEYS.indexOf(key) >= 0){ try{ localStorage.setItem(key, s[key]); }catch(err){} } });
-        try{ folders = JSON.parse(localStorage.getItem('notepen_folders') || '[]'); }catch(err){ folders = []; }
+        // 백업의 폴더는 지금 목록에 '더해서' 되살린다(복원은 명시적인 동작이므로 예전에 지운 폴더도 다시 살림)
+        let restoredFolders = [];
+        try{ restoredFolders = JSON.parse(localStorage.getItem('notepen_folders') || '[]'); }catch(err){ restoredFolders = []; }
+        const nowTs = Date.now();
+        restoredFolders = (Array.isArray(restoredFolders) ? restoredFolders : []).map(f=> Object.assign({}, f, {updatedAt: nowTs}));
+        folders = mergeFolderState(foldersBefore, folderTombs, restoredFolders, {}).list;
+        saveFolders();
       }catch(err){ console.error('설정 복원 실패', err); }
     }
     prog.textContent = '복원 ' + added + '개 · 건너뜀 ' + skipped + '개 (백업 시각: ' + new Date(man.exportedAt).toLocaleString('ko-KR') + ')';
@@ -6602,7 +6703,7 @@ qmLoad();
    - 파일 앞 2KB만 Range로 받아 확인하므로 데이터를 거의 안 씀(서버가 Range를 무시해도 동작은 함)
    - 캐시를 확실히 피하려고 일회용 ?nc= 를 붙여서 받음(브라우저가 그 주소를 캐시해도 다음엔 다른 번호라 무해)
    - GitHub Pages는 max-age=600이라 그냥 둬도 10분 뒤엔 새 파일을 받지만, 그걸 기다리지 않고 알려주기 위함 */
-const APP_BUILD = '2026-09-27a';
+const APP_BUILD = '2026-09-30a';
 const UPDATE_RECHECK_MS = 10 * 60 * 1000;
 let updateBannerShown = false, lastUpdateCheck = 0;
 function appBaseUrl(){ return location.pathname.replace(/[^/]*$/, ''); }
