@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>NotePen</title>
-<!-- build: 2026-09-30e (실험 모드 예측선을 페이지 안으로 — 엉뚱한 곳에 선 표시 수정) -->
+<!-- build: 2026-09-30f (Ctrl+E로 펜 예측 켜기/끄기) -->
 <style>
   :root{
     --bg: #f4f3f1;
@@ -2377,7 +2377,7 @@ async function zipBytes(zip, e){
   return new Uint8Array(await zip.file.slice(start, start + e.csize).arrayBuffer());
 }
 
-const BACKUP_SETTING_KEYS = ['notepen_folders','notepen_note_order','notepen_note_pins','notepen_note_favs','notepen_scratch_note','notepen_eraser_mode','notepen_hotkeys','notepen_text_style','notepen_penhold'];
+const BACKUP_SETTING_KEYS = ['notepen_inkpred','notepen_folders','notepen_note_order','notepen_note_pins','notepen_note_favs','notepen_scratch_note','notepen_eraser_mode','notepen_hotkeys','notepen_text_style','notepen_penhold'];
 
 async function exportBackup(){
   const btn = document.getElementById('backup-export');
@@ -2896,6 +2896,13 @@ document.addEventListener('keydown', (e)=>{
     togglePenHold();
     return;
   }
+  // Ctrl+E : 펜 예측(필기 끝 앞을 미리 그림) 켜기/끄기 (노트 화면이 아니어도 됨)
+  if((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && (e.key || '').toLowerCase() === 'e'
+     && !hotkeyInputBusy() && !hotkeyPopupOpen()){
+    e.preventDefault();
+    toggleInkPred();
+    return;
+  }
   // 올가미 선택 복사·잘라내기·붙여넣기 (키보드를 쓸 때만; 입력칸에 있을 땐 브라우저 기본 동작이 우선)
   if((e.ctrlKey || e.metaKey) && !e.altKey && inNoteView() && !hotkeyInputBusy() && !hotkeyPopupOpen()){
     const k = (e.key || '').toLowerCase();
@@ -3346,7 +3353,11 @@ let lastPtScreen = null;
    ⚠️ 2026-09-30: 처음엔 desynchronized(저지연) 캔버스도 같이 켰는데, 갤럭시 탭에서 노트를 열고 쓰려는 순간
    화면 전체가 까매졌다(투명 캔버스에 저지연 모드 → 투명 부분이 검게 표시되는 것으로 추정). 그래서 뺐음.
    투명 캔버스·화면 전체 오버레이에는 desynchronized를 쓰지 말 것. */
-const INK_LAB = /(?:^|[?&])lab=ink(?:&|$)/.test(location.search);
+/* 켜고 끄기: Ctrl+E (2026-09-30f). 기기별 설정이라 localStorage에 저장('1'일 때만 켬 — 실험 기능이라 기본은 꺼짐).
+   주소에 ?lab=ink 를 붙여 열면 저장값과 상관없이 이번에만 켜짐. */
+const INK_PRED_KEY = 'notepen_inkpred';
+let INK_LAB = /(?:^|[?&])lab=ink(?:&|$)/.test(location.search);
+try{ if(localStorage.getItem(INK_PRED_KEY) === '1') INK_LAB = true; }catch(e){}
 let inkLabPrev = null;            // 예측 선 시작점 계산용(직전 화면 좌표)
 /* 예측선은 '그리는 중인 페이지 안'의 작은 캔버스에 그린다 (2026-09-30e).
    처음엔 화면 전체를 덮는 position:fixed 캔버스에 화면 좌표로 그렸는데, 갤럭시 탭에서 필기를 작게 줄인 모양이
@@ -3401,13 +3412,27 @@ function drawPrediction(e){
   ahead.forEach(q=> predCtx.lineTo(q.x, q.y));
   predCtx.stroke();
 }
-if(INK_LAB){
-  const badge = document.createElement('div');
-  badge.textContent = 'LAB 펜 예측';
-  Object.assign(badge.style, {position:'fixed', left:'6px', bottom:'6px', zIndex:'9001', pointerEvents:'none', font:'11px sans-serif', padding:'2px 6px', borderRadius:'6px', background:'rgba(217,98,43,0.85)', color:'#fff'});
-  document.addEventListener('DOMContentLoaded', ()=> document.body.appendChild(badge));
-  if(document.body) document.body.appendChild(badge);
+let inkPredBadge = null;
+function updateInkPredBadge(){
+  if(!inkPredBadge){
+    inkPredBadge = document.createElement('div');
+    inkPredBadge.className = 'np-inkpred-badge';
+    inkPredBadge.textContent = '펜 예측 켬 (Ctrl+E)';
+    Object.assign(inkPredBadge.style, {position:'fixed', left:'6px', bottom:'6px', zIndex:'9001', pointerEvents:'none', font:'11px sans-serif', padding:'2px 6px', borderRadius:'6px', background:'rgba(217,98,43,0.85)', color:'#fff'});
+  }
+  if(INK_LAB){ if(!inkPredBadge.isConnected && document.body) document.body.appendChild(inkPredBadge); }
+  else if(inkPredBadge.isConnected) inkPredBadge.remove();
 }
+function toggleInkPred(){
+  INK_LAB = !INK_LAB;
+  if(!INK_LAB) clearPrediction(); // 끄는 순간 떠 있던 예측선도 지움
+  try{ localStorage.setItem(INK_PRED_KEY, INK_LAB ? '1' : '0'); }catch(e){}
+  updateInkPredBadge();
+  toast(INK_LAB
+    ? '펜 예측 켬 · 펜 끝 앞을 미리 그려 덜 늦게 따라와요 (Ctrl+E로 끄기)'
+    : '펜 예측 끔 (Ctrl+E로 다시 켜기)');
+}
+if(document.body) updateInkPredBadge(); else document.addEventListener('DOMContentLoaded', updateInkPredBadge);
 function pushStrokePoint(stroke, ev){
   if(lastPtScreen && Math.hypot(ev.clientX - lastPtScreen.x, ev.clientY - lastPtScreen.y) < MIN_MOVE_PX) return false;
   inkLabPrev = lastPtScreen;
@@ -6851,7 +6876,7 @@ qmLoad();
    - 파일 앞 2KB만 Range로 받아 확인하므로 데이터를 거의 안 씀(서버가 Range를 무시해도 동작은 함)
    - 캐시를 확실히 피하려고 일회용 ?nc= 를 붙여서 받음(브라우저가 그 주소를 캐시해도 다음엔 다른 번호라 무해)
    - GitHub Pages는 max-age=600이라 그냥 둬도 10분 뒤엔 새 파일을 받지만, 그걸 기다리지 않고 알려주기 위함 */
-const APP_BUILD = '2026-09-30e';
+const APP_BUILD = '2026-09-30f';
 const UPDATE_RECHECK_MS = 10 * 60 * 1000;
 let updateBannerShown = false, lastUpdateCheck = 0;
 function appBaseUrl(){ return location.pathname.replace(/[^/]*$/, ''); }
