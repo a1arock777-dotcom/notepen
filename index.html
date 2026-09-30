@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>NotePen</title>
-<!-- build: 2026-09-30i (저지연 캔버스 재시험 — ?lab=desync 주소에서 필기 레이어에만) -->
+<!-- build: 2026-10-01a (펜 예측선 다듬기 — 짧게·빗나간 예측 버림) -->
 <style>
   :root{
     --bg: #f4f3f1;
@@ -3330,7 +3330,12 @@ let inkLabPrev = null;            // 예측 선 시작점 계산용(직전 화�
    처음엔 화면 전체를 덮는 position:fixed 캔버스에 화면 좌표로 그렸는데, 갤럭시 탭에서 필기를 작게 줄인 모양이
    아래쪽에 따로 나타났다(오버레이와 페이지의 좌표계가 어긋남 — 브라우저 배율 등으로 추정).
    페이지 블록 안에 두면 필기 캔버스와 똑같이 확대·이동되므로 어긋날 수 없다. 좌표도 필기와 같은 캔버스 px를 씀. */
-const PRED_BOX = 240;            // 예측선 캔버스 크기(CSS 페이지 px) — 펜 끝을 가운데에 두고 매번 옮김
+const PRED_BOX = 240;
+let predHist = [];                    // 최근 펜 이벤트 화면 좌표(예측 방향·속도 판단용)
+const PRED_MIN_POINTS = 4;            // 획 시작 직후(점 4개 전)엔 예측선 안 그림
+const PRED_MIN_MOVE_SCREEN_PX = 3;    // 최근 3구간 이동이 화면 3px 미만(거의 멈춤)이면 안 그림
+const PRED_MIN_COS = 0.5;             // 지금 방향과 60도 넘게 틀어진 예측은 버림
+const PRED_MAX_SCREEN_PX = 12;        // 예측선 최대 길이(화면 px)            // 예측선 캔버스 크기(CSS 페이지 px) — 펜 끝을 가운데에 두고 매번 옮김
 let predCanvas = null, predCtx = null;
 function ensurePredCanvas(block){
   if(!predCanvas){
@@ -3357,16 +3362,30 @@ function drawPrediction(e){
   const block = strokeCanvas.parentElement;
   ensurePredCanvas(block);
   if(!pr || !pr.length){ clearPrediction(); return; }
-  const last = pts[pts.length-1], prev = pts.length >= 2 ? pts[pts.length-2] : null;
-  const sx = prev ? (prev.x + last.x)/2 : last.x, sy = prev ? (prev.y + last.y)/2 : last.y; // 실제 선이 끝난 자리(중점)
-  const maxReach = (PRED_BOX/2 - 10) * RES_SCALE; // 상자 밖으로 튀는(엉뚱한) 예측점은 버림
-  const ahead = [];
-  for(const p of pr){
-    const q = coordFromEvent(p, strokeCanvas);
-    if(Math.abs(q.x - last.x) > maxReach || Math.abs(q.y - last.y) > maxReach) break;
-    ahead.push(q);
-  }
-  if(!ahead.length){ clearPrediction(); return; }
+  /* 예측선 다듬기 (2026-10-01). 크롬 예측은 획 시작·급히 꺾을 때·거의 멈췄을 때 크게 빗나가서
+     엉뚱한 방향으로 긴 선이 휙 나왔다 사라졌다(사용자: "까만 선이 주변에 휙휙"). 그래서
+     ①획 시작 직후와 거의 멈춘 순간엔 안 그리고 ②지금 방향과 60도 넘게 틀어진 예측은 버리고
+     ③가장 가까운 예측점 하나만, ④화면 기준 PRED_MAX_SCREEN_PX 이하·최근 이동거리 이하로 잘라서 그린다. */
+  // 방향·속도는 저장 점(1px 미만 움직임은 솎아냄)이 아니라 실제 펜 이벤트의 화면 좌표로 판단
+  predHist.push({x:e.clientX, y:e.clientY});
+  if(predHist.length > 4) predHist.shift();
+  const n = pts.length;
+  if(n < PRED_MIN_POINTS || predHist.length < 4){ clearPrediction(); return; }
+  const last = pts[n-1], prev = pts[n-2];
+  const toScreen = zoom / RES_SCALE;                          // 필기 캔버스 px → 화면 px
+  const h0 = predHist[0], h3 = predHist[predHist.length-1];
+  const rdx = h3.x - h0.x, rdy = h3.y - h0.y;                  // 최근 3번 움직임(화면 px)
+  const recent = Math.hypot(rdx, rdy);
+  if(recent < PRED_MIN_MOVE_SCREEN_PX){ clearPrediction(); return; } // 거의 멈춤
+  let vx = pr[0].clientX - e.clientX, vy = pr[0].clientY - e.clientY; // 예측(화면 px)
+  const vlen = Math.hypot(vx, vy);
+  if(vlen < 0.5){ clearPrediction(); return; }
+  const cos = (vx*rdx + vy*rdy) / (vlen * recent);
+  if(cos < PRED_MIN_COS){ clearPrediction(); return; }          // 방향이 크게 틀어진 예측
+  const capScreen = Math.min(PRED_MAX_SCREEN_PX, recent);      // 최대 길이(화면 px)
+  if(vlen > capScreen){ vx *= capScreen / vlen; vy *= capScreen / vlen; }
+  vx /= toScreen; vy /= toScreen;                               // 화면 px → 필기 캔버스 px
+  const sx = (prev.x + last.x)/2, sy = (prev.y + last.y)/2;    // 실제 선이 끝난 자리(중점)
   // 상자를 펜 끝 중심으로 옮김(CSS 페이지 px). 캔버스 1px = 필기 캔버스 1px
   const ox = Math.round(last.x / RES_SCALE - PRED_BOX/2), oy = Math.round(last.y / RES_SCALE - PRED_BOX/2);
   predCanvas.style.left = ox + 'px'; predCanvas.style.top = oy + 'px'; predCanvas.style.display = 'block';
@@ -3375,8 +3394,7 @@ function drawPrediction(e){
   predCtx.setTransform(1,0,0,1, -ox*RES_SCALE, -oy*RES_SCALE);
   predCtx.lineCap = 'round'; predCtx.lineJoin = 'round'; predCtx.strokeStyle = color;
   predCtx.lineWidth = Math.max(0.6, size * RES_SCALE * (0.5 + (last.p || 0.5)));  // strokeQuadSegment와 같은 굵기
-  predCtx.beginPath(); predCtx.moveTo(sx, sy); predCtx.lineTo(last.x, last.y);
-  ahead.forEach(q=> predCtx.lineTo(q.x, q.y));
+  predCtx.beginPath(); predCtx.moveTo(sx, sy); predCtx.lineTo(last.x, last.y); predCtx.lineTo(last.x + vx, last.y + vy);
   predCtx.stroke();
 }
 let inkPredBadge = null;
@@ -4786,6 +4804,7 @@ function onPointerDown(e){
   // 펜이 페이지 밖(툴바 위 등)으로 나가도 이 포인터의 이벤트를 계속 받도록 붙잡아둔다
   try{ stackEl.setPointerCapture(e.pointerId); }catch(err){}
   lastPtScreen = {x: e.clientX, y: e.clientY}; // 좌표 솎아내기 기준점 (pushStrokePoint 참고)
+  predHist = [{x: e.clientX, y: e.clientY}];   // 예측선 방향 판단용 기록도 새 획마다 새로
   inkLabPrev = null;
   // 지우개는 글상자(개체)도 지우므로 개체 목록까지 담은 스냅샷이 필요함
   pushHistory(activeAction==='eraser' ? snapshotPage(activePageIdx)
@@ -6794,7 +6813,7 @@ function updateThumbnailSoon(){
    - 파일 앞 2KB만 Range로 받아 확인하므로 데이터를 거의 안 씀(서버가 Range를 무시해도 동작은 함)
    - 캐시를 확실히 피하려고 일회용 ?nc= 를 붙여서 받음(브라우저가 그 주소를 캐시해도 다음엔 다른 번호라 무해)
    - GitHub Pages는 max-age=600이라 그냥 둬도 10분 뒤엔 새 파일을 받지만, 그걸 기다리지 않고 알려주기 위함 */
-const APP_BUILD = '2026-09-30i';
+const APP_BUILD = '2026-10-01a';
 const UPDATE_RECHECK_MS = 10 * 60 * 1000;
 let updateBannerShown = false, lastUpdateCheck = 0;
 function appBaseUrl(){ return location.pathname.replace(/[^/]*$/, ''); }
