@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>NotePen</title>
-<!-- build: 2026-09-30c (필기 중 저장 멈춤 제거 + 저지연 실험 모드 ?lab=ink) -->
+<!-- build: 2026-09-30d (실험 모드에서 저지연 캔버스 제거 — 까만 화면) -->
 <style>
   :root{
     --bg: #f4f3f1;
@@ -3096,7 +3096,7 @@ function buildBlockContent(block, idx){
     c.dataset.pageIdx = idx;
     c.dataset.layerIdx = li;
     block.appendChild(c);
-    drawLayer(c.getContext('2d', INK_LAB ? {desynchronized:true} : undefined), layer);
+    drawLayer(c.getContext('2d'), layer);
   });
 
   if(!page.images) page.images = [];
@@ -3341,9 +3341,11 @@ const MIN_MOVE_PX = 1.0;
 // ⚠️ 이 보조 상태를 획 객체에 달면 그대로 저장·동기화돼버리므로 반드시 바깥에 둘 것
 let lastPtScreen = null;
 /* ---------- 저지연 실험 모드 (주소에 ?lab=ink 를 붙였을 때만, 2026-09-30) ----------
-   ①필기 캔버스를 desynchronized(저지연) 모드로 만들고 ②펜 위치 예측(getPredictedEvents)으로
-   펜 끝과 선 사이의 빈틈을 화면 전용 덧그림으로 미리 채운다. 예측 선은 저장되지 않고 매 움직임마다 지워진다.
-   효과·부작용이 기기마다 달라 평소 주소에서는 꺼져 있음. */
+   펜 위치 예측(getPredictedEvents)으로 펜 끝과 선 사이의 빈틈을 화면 전용 덧그림으로 미리 채운다.
+   예측 선은 저장되지 않고 매 움직임마다 지워진다. 평소 주소에서는 꺼져 있음.
+   ⚠️ 2026-09-30: 처음엔 desynchronized(저지연) 캔버스도 같이 켰는데, 갤럭시 탭에서 노트를 열고 쓰려는 순간
+   화면 전체가 까매졌다(투명 캔버스에 저지연 모드 → 투명 부분이 검게 표시되는 것으로 추정). 그래서 뺐음.
+   투명 캔버스·화면 전체 오버레이에는 desynchronized를 쓰지 말 것. */
 const INK_LAB = /(?:^|[?&])lab=ink(?:&|$)/.test(location.search);
 let inkLabPrev = null;            // 예측 선 시작점 계산용(직전 화면 좌표)
 let predCanvas = null, predCtx = null;
@@ -3353,7 +3355,7 @@ function ensurePredCanvas(){
   predCanvas.className = 'np-pred-canvas';
   Object.assign(predCanvas.style, {position:'fixed', left:'0', top:'0', width:'100vw', height:'100vh', pointerEvents:'none', zIndex:'9000'});
   document.body.appendChild(predCanvas);
-  predCtx = predCanvas.getContext('2d', {desynchronized:true});
+  predCtx = predCanvas.getContext('2d');
   const fit = ()=>{ const d = window.devicePixelRatio || 1;
     predCanvas.width = Math.max(1, Math.round(innerWidth*d)); predCanvas.height = Math.max(1, Math.round(innerHeight*d));
     predCtx.setTransform(d,0,0,d,0,0); };
@@ -3376,7 +3378,7 @@ function drawPrediction(e){
 }
 if(INK_LAB){
   const badge = document.createElement('div');
-  badge.textContent = 'LAB 저지연';
+  badge.textContent = 'LAB 펜 예측';
   Object.assign(badge.style, {position:'fixed', left:'6px', bottom:'6px', zIndex:'9001', pointerEvents:'none', font:'11px sans-serif', padding:'2px 6px', borderRadius:'6px', background:'rgba(217,98,43,0.85)', color:'#fff'});
   document.addEventListener('DOMContentLoaded', ()=> document.body.appendChild(badge));
   if(document.body) document.body.appendChild(badge);
@@ -6823,7 +6825,7 @@ qmLoad();
    - 파일 앞 2KB만 Range로 받아 확인하므로 데이터를 거의 안 씀(서버가 Range를 무시해도 동작은 함)
    - 캐시를 확실히 피하려고 일회용 ?nc= 를 붙여서 받음(브라우저가 그 주소를 캐시해도 다음엔 다른 번호라 무해)
    - GitHub Pages는 max-age=600이라 그냥 둬도 10분 뒤엔 새 파일을 받지만, 그걸 기다리지 않고 알려주기 위함 */
-const APP_BUILD = '2026-09-30c';
+const APP_BUILD = '2026-09-30d';
 const UPDATE_RECHECK_MS = 10 * 60 * 1000;
 let updateBannerShown = false, lastUpdateCheck = 0;
 function appBaseUrl(){ return location.pathname.replace(/[^/]*$/, ''); }
