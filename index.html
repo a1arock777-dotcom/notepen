@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>NotePen</title>
-<!-- build: 2026-09-30b (꾹 눌러 만든 글상자에 바로 타자) -->
+<!-- build: 2026-09-30c (필기 중 저장 멈춤 제거 + 저지연 실험 모드 ?lab=ink) -->
 <style>
   :root{
     --bg: #f4f3f1;
@@ -1297,6 +1297,7 @@ async function toggleNoteSync(nb){
 }
 document.getElementById('btn-note-sync').onclick = ()=>{ if(current) toggleNoteSync(current); };
 
+const oversizeWarned = new Set(); // '용량이 너무 커서 동기화 제외' 안내는 노트마다 한 번만
 /* 로컬에 노트가 저장될 때마다 호출됨. 로그인 안 되어 있으면 그냥 무시. */
 async function syncPushNotebook(nb){
   if(!fbUser || !fbDb) return;
@@ -1308,12 +1309,18 @@ async function syncPushNotebook(nb){
       nb.pdfStoragePath = path;
       await dbPut(nb, {skipSync:true}); // storage 경로를 로컬에도 기록 (재업로드 방지)
     }
+    // 동기화 한도를 넘는 노트는 어차피 안 올라가므로, 큰 문자열을 또 만들지 않고 여기서 멈춤(필기 중 멈춤 줄이기)
+    const pagesJson = JSON.stringify(nb.pages);
+    if(pagesJson.length > 900000){
+      if(!oversizeWarned.has(nb.id)){ oversizeWarned.add(nb.id); toast('이 노트는 용량이 너무 커서 동기화에서 제외돼요.'); }
+      return;
+    }
     const docData = {
       id: nb.id, title: nb.title, type: nb.type,
       bgColor: nb.bgColor || null, lined: !!nb.bgLined,
       createdAt: nb.createdAt, updatedAt: nb.updatedAt,
       folderId: nb.folderId || null, thumbnail: nb.thumbnail || null,
-      pagesJson: JSON.stringify(nb.pages),
+      pagesJson,
       pdfStoragePath: nb.pdfStoragePath || null,
       // ⚠️ 노트 데이터(nb)에 새 필드를 만들면 여기와 아래 mergeRemoteNotebook()에 반드시 같이 넣을 것.
       // 여기 빠진 필드는 클라우드에 안 올라갈 뿐 아니라, 다른 기기의 변경을 받을 때 그 기기에서 '삭제'된다
@@ -1476,7 +1483,7 @@ async function reloadOpenNotebook(){
   const found = all.find(n=>n.id===id);
   if(!found){ showSyncBanner(false); return; }
   // 다시 불러오기 직전에 예약된 자동저장이 남아 있으면, 그게 옛 내용을 도로 덮어쓰므로 취소
-  clearTimeout(saveTimer);
+  clearTimeout(saveTimer); saveTimer = null; saveDirtySince = 0;
   // PDF 원본을 못 받아온 경우엔 이 기기에 이미 있는 원본을 계속 씀(pdfDoc은 그대로 재사용)
   if(!found.pdfBuffer && current.pdfBuffer) found.pdfBuffer = current.pdfBuffer;
   const keepTop = wrapEl.scrollTop, keepLeft = wrapEl.scrollLeft;
@@ -2707,6 +2714,8 @@ async function openNotebook(id, targetPage, targetShortcutId){
   const found = all.find(n=>n.id===id);
   // 찾는 노트가 없으면(예: 바로가기 아이콘이 가리키던 노트가 삭제된 경우) 지금 보던 노트를 그대로 유지함
   if(!found){ toast('노트를 찾을 수 없어요.'); return; }
+  // 지금 노트에 저장 안 된 필기가 있으면 먼저 저장(안 하면 예약된 저장이 새로 연 노트를 저장해 버려 필기가 사라짐)
+  await flushSave();
   // Tab 오가기 기록: 다른 노트에서 넘어온 경우에만 '직전 노트'를 갱신함
   // (같은 노트를 다시 열거나 라이브러리에서 그 노트로 돌아온 경우엔 A↔B 짝이 유지돼야 함)
   const leavingId = (current && inNoteView()) ? current.id : null;
@@ -2806,6 +2815,7 @@ async function openNotebook(id, targetPage, targetShortcutId){
 document.getElementById('btn-back').onclick = async ()=>{
   scratchOrigin = null; // 라이브러리로 나가면 '이면지에서 돌아가기' 대상은 없어짐
   showSyncBanner(false); // 노트를 나가면 이 노트용 안내 배너는 의미가 없음
+  clearTimeout(saveTimer); saveTimer = null;
   await persist(true);
   editorEl.style.display = 'none';
   libraryEl.style.display = 'block';
@@ -3086,7 +3096,7 @@ function buildBlockContent(block, idx){
     c.dataset.pageIdx = idx;
     c.dataset.layerIdx = li;
     block.appendChild(c);
-    drawLayer(c.getContext('2d'), layer);
+    drawLayer(c.getContext('2d', INK_LAB ? {desynchronized:true} : undefined), layer);
   });
 
   if(!page.images) page.images = [];
@@ -3330,8 +3340,50 @@ function coalescedOf(e){
 const MIN_MOVE_PX = 1.0;
 // ⚠️ 이 보조 상태를 획 객체에 달면 그대로 저장·동기화돼버리므로 반드시 바깥에 둘 것
 let lastPtScreen = null;
+/* ---------- 저지연 실험 모드 (주소에 ?lab=ink 를 붙였을 때만, 2026-09-30) ----------
+   ①필기 캔버스를 desynchronized(저지연) 모드로 만들고 ②펜 위치 예측(getPredictedEvents)으로
+   펜 끝과 선 사이의 빈틈을 화면 전용 덧그림으로 미리 채운다. 예측 선은 저장되지 않고 매 움직임마다 지워진다.
+   효과·부작용이 기기마다 달라 평소 주소에서는 꺼져 있음. */
+const INK_LAB = /(?:^|[?&])lab=ink(?:&|$)/.test(location.search);
+let inkLabPrev = null;            // 예측 선 시작점 계산용(직전 화면 좌표)
+let predCanvas = null, predCtx = null;
+function ensurePredCanvas(){
+  if(predCanvas) return;
+  predCanvas = document.createElement('canvas');
+  predCanvas.className = 'np-pred-canvas';
+  Object.assign(predCanvas.style, {position:'fixed', left:'0', top:'0', width:'100vw', height:'100vh', pointerEvents:'none', zIndex:'9000'});
+  document.body.appendChild(predCanvas);
+  predCtx = predCanvas.getContext('2d', {desynchronized:true});
+  const fit = ()=>{ const d = window.devicePixelRatio || 1;
+    predCanvas.width = Math.max(1, Math.round(innerWidth*d)); predCanvas.height = Math.max(1, Math.round(innerHeight*d));
+    predCtx.setTransform(d,0,0,d,0,0); };
+  fit(); window.addEventListener('resize', fit);
+}
+function clearPrediction(){ if(predCtx) predCtx.clearRect(0, 0, predCanvas.width, predCanvas.height); }
+function drawPrediction(e){
+  if(!INK_LAB || typeof e.getPredictedEvents !== 'function' || !lastPtScreen) return;
+  ensurePredCanvas(); clearPrediction();
+  let pr; try{ pr = e.getPredictedEvents(); }catch(err){ return; }
+  if(!pr || !pr.length) return;
+  const last = lastPtScreen, prev = inkLabPrev;
+  const sx = prev ? (prev.x + last.x)/2 : last.x, sy = prev ? (prev.y + last.y)/2 : last.y; // 실제 선이 끝난 자리(중점)
+  predCtx.save();
+  predCtx.lineCap = 'round'; predCtx.lineJoin = 'round'; predCtx.strokeStyle = color;
+  predCtx.lineWidth = Math.max(0.6, size * (0.5 + (e.pressure || 0.5)) * zoom);
+  predCtx.beginPath(); predCtx.moveTo(sx, sy); predCtx.lineTo(last.x, last.y);
+  pr.forEach(p=> predCtx.lineTo(p.clientX, p.clientY));
+  predCtx.stroke(); predCtx.restore();
+}
+if(INK_LAB){
+  const badge = document.createElement('div');
+  badge.textContent = 'LAB 저지연';
+  Object.assign(badge.style, {position:'fixed', left:'6px', bottom:'6px', zIndex:'9001', pointerEvents:'none', font:'11px sans-serif', padding:'2px 6px', borderRadius:'6px', background:'rgba(217,98,43,0.85)', color:'#fff'});
+  document.addEventListener('DOMContentLoaded', ()=> document.body.appendChild(badge));
+  if(document.body) document.body.appendChild(badge);
+}
 function pushStrokePoint(stroke, ev){
   if(lastPtScreen && Math.hypot(ev.clientX - lastPtScreen.x, ev.clientY - lastPtScreen.y) < MIN_MOVE_PX) return false;
+  inkLabPrev = lastPtScreen;
   lastPtScreen = {x: ev.clientX, y: ev.clientY};
   let {x,y} = coordFromEvent(ev, strokeCanvas);
   const pts = stroke.points;
@@ -4708,6 +4760,7 @@ function onPointerDown(e){
   // 펜이 페이지 밖(툴바 위 등)으로 나가도 이 포인터의 이벤트를 계속 받도록 붙잡아둔다
   try{ stackEl.setPointerCapture(e.pointerId); }catch(err){}
   lastPtScreen = {x: e.clientX, y: e.clientY}; // 좌표 솎아내기 기준점 (pushStrokePoint 참고)
+  inkLabPrev = null;
   // 지우개는 글상자(개체)도 지우므로 개체 목록까지 담은 스냅샷이 필요함
   pushHistory(activeAction==='eraser' ? snapshotPage(activePageIdx)
                                       : snapshotLayer(activePageIdx, activeLayerIdx));
@@ -4853,6 +4906,7 @@ function onPointerMove(e){
       if(!pushStrokePoint(currentStroke, ev)) continue;
       strokeQuadSegment(strokeCtx, pts, pts.length-1, color, size, false);
     }
+    if(INK_LAB) drawPrediction(e);
   } else if(activeAction==='pencil' && currentStroke){
     const pts = currentStroke.points;
     strokeCtx.save(); strokeCtx.fillStyle = color;
@@ -4895,6 +4949,7 @@ function onPointerMove(e){
   }
 }
 function onPointerUp(e){
+  if(INK_LAB) clearPrediction();
   activePointers.delete(e.pointerId);
   cancelPenHold(e); // 그 펜을 뗐을 때만 끝 (pointercancel도 이 함수로 들어옴)
   // 그리는 중이면 그 포인터가 떨어질 때만 마무리한다(손바닥이 먼저 떨어져도 획이 안 끊기게)
@@ -6643,15 +6698,40 @@ document.getElementById('layer-del').onclick = ()=>{
 };
 
 /* ================= Save ================= */
+/* 자동 저장 시점 (2026-09-30 변경)
+   저장(persist)은 노트 전체(모든 쪽의 획 + PDF 원본)를 저장소에 복사하고 동기화용 문자열을 만드는 일이라
+   큰 노트에서는 100ms~수백 ms 동안 화면·펜 입력이 통째로 멈춘다. 예전엔 획마다 0.7초 뒤에 저장해서
+   단어 사이에 잠깐 쉬었다가 다음 획을 긋는 순간과 자주 겹쳤다("필기가 무겁다").
+   → 손을 SAVE_IDLE_MS 동안 쉬었을 때만 저장하고, 긋는 중이면 미룬다. 대신 노트를 떠나거나
+     앱이 가려지는 순간엔 곧바로 저장(flushSave)해서 잃는 게 없게 한다. */
+const SAVE_IDLE_MS = 2500;       // 손을 이만큼 쉬면 저장
+const SAVE_MAX_WAIT_MS = 30000;  // 쉬지 않고 계속 써도 이보다 오래 미루지는 않음
 let saveTimer = null;
+let saveDirtySince = 0;          // 저장 안 된 변경이 처음 생긴 시각
 function scheduleSave(){
-  const dot = document.getElementById('save-dot');
   lastEditAt = Date.now(); // '지금 필기 중인지' 판단에 씀(동기화 자동 반영 여부)
+  if(!saveDirtySince) saveDirtySince = Date.now();
   clearTimeout(saveTimer);
-  saveTimer = setTimeout(()=> persist(), 700);
+  const overdue = (Date.now() - saveDirtySince) > SAVE_MAX_WAIT_MS;
+  saveTimer = setTimeout(runScheduledSave, overdue ? 400 : SAVE_IDLE_MS);
 }
+function runScheduledSave(){
+  saveTimer = null;
+  // 긋는 중이면 뒤로 미룸 (단, 너무 오래 밀리면 그냥 저장 — 상태가 꼬여 drawing이 안 풀려도 저장이 영영 막히지 않게)
+  if(drawing && (Date.now() - saveDirtySince) < SAVE_MAX_WAIT_MS){ saveTimer = setTimeout(runScheduledSave, 600); return; }
+  persist();
+}
+// 예약된 저장이 있으면 지금 바로 저장 (노트 전환·앱 가려짐 때)
+async function flushSave(){
+  if(!saveTimer) return;
+  clearTimeout(saveTimer); saveTimer = null;
+  await persist(true);
+}
+document.addEventListener('visibilitychange', ()=>{ if(document.hidden) flushSave(); });
+window.addEventListener('pagehide', ()=>{ flushSave(); });
 async function persist(silent){
   if(!current) return;
+  saveDirtySince = 0;
   current.updatedAt = Date.now();
   const ok = await dbPut(current);
   const dot = document.getElementById('save-dot');
@@ -6743,7 +6823,7 @@ qmLoad();
    - 파일 앞 2KB만 Range로 받아 확인하므로 데이터를 거의 안 씀(서버가 Range를 무시해도 동작은 함)
    - 캐시를 확실히 피하려고 일회용 ?nc= 를 붙여서 받음(브라우저가 그 주소를 캐시해도 다음엔 다른 번호라 무해)
    - GitHub Pages는 max-age=600이라 그냥 둬도 10분 뒤엔 새 파일을 받지만, 그걸 기다리지 않고 알려주기 위함 */
-const APP_BUILD = '2026-09-30b';
+const APP_BUILD = '2026-09-30c';
 const UPDATE_RECHECK_MS = 10 * 60 * 1000;
 let updateBannerShown = false, lastUpdateCheck = 0;
 function appBaseUrl(){ return location.pathname.replace(/[^/]*$/, ''); }
