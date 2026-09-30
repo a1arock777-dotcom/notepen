@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>NotePen</title>
-<!-- build: 2026-09-30a (폴더 목록 기기 간 동기화 + 폴더 이동 동기화) -->
+<!-- build: 2026-09-30b (꾹 눌러 만든 글상자에 바로 타자) -->
 <style>
   :root{
     --bg: #f4f3f1;
@@ -5585,7 +5585,47 @@ function firePenHold(info){
   redrawLayerCanvas(info.pageIdx, info.layerIdx); // 누르는 동안 찍힌 점을 지움
   if(navigator.vibrate) { try { navigator.vibrate(20); } catch(_){} } // 글상자가 떴다는 손끝 신호
   createTextBoxAt({clientX:info.x, clientY:info.y, target:info.target});
+  armPenHoldRefocus(info.id);
 }
+/* ---------- 꾹 눌러 만든 글상자에 바로 타자 (2026-09-30) ----------
+   글상자는 펜이 아직 닿아 있는 동안 만들어지므로, 그때 넣은 커서는
+   (1) 펜을 떼는 순간 브라우저의 탭/롱프레스 기본 동작이 포커스를 캔버스 쪽으로 가져가 사라지고
+   (2) 안드로이드는 펜을 '뗄 때'만 사용자 동작으로 인정해서 누르는 중의 focus()로는 화상 키보드도 안 뜬다.
+   그래서 한 번 더 눌러야 타자가 들어갔음 → 그 펜의 pointerup(사용자 동작으로 인정됨) 안에서 곧바로
+   커서를 다시 넣고, 뒤따르는 기본 동작이 또 가져가면 잠깐(0.4초) 동안만 되돌린다. */
+let penHoldRefocus = null; // {pointerId, ta, until}
+function refocusEditingTa(ta){
+  if(!editingText || editingText.ta !== ta || !ta.isConnected) return false;
+  if(document.activeElement !== ta){
+    try{ ta.focus({preventScroll:true}); const n = ta.value.length; ta.setSelectionRange(n, n); }catch(err){}
+  }
+  return true;
+}
+function armPenHoldRefocus(pointerId){
+  const ta = editingText && editingText.ta;
+  penHoldRefocus = ta ? {pointerId, ta, until: Date.now() + 15000} : null;
+}
+function onPenHoldRelease(e){
+  const r = penHoldRefocus;
+  if(!r || e.pointerId !== r.pointerId) return;
+  penHoldRefocus = null;
+  if(Date.now() > r.until) return;
+  if(!refocusEditingTa(r.ta)) return;
+  const guardUntil = Date.now() + 400;
+  // 펜을 뗀 직후 따라오는 호환 mousedown이 글상자 밖에 떨어지면 포커스를 옮기지 못하게 막음(0.4초만)
+  const guard = (ev)=>{
+    if(Date.now() > guardUntil){ cleanup(); return; }
+    if(!editingText || editingText.ta !== r.ta) { cleanup(); return; }
+    if(ev.target instanceof Node && editingText.el.contains(ev.target)) return;
+    ev.preventDefault();
+  };
+  const cleanup = ()=> window.removeEventListener('mousedown', guard, true);
+  window.addEventListener('mousedown', guard, true);
+  [0, 50, 150, 300].forEach(ms=> setTimeout(()=> refocusEditingTa(r.ta), ms));
+  setTimeout(cleanup, 450);
+}
+window.addEventListener('pointerup', onPenHoldRelease, true);
+window.addEventListener('pointercancel', onPenHoldRelease, true);
 
 /* ================= 올가미로 고른 것 복사·잘라내기·붙여넣기 =================
    올가미로 고른 필기·도형(마스킹)·이미지를 통째로 복사하거나 잘라내서, 툴바의 도장 버튼을 누른 뒤
@@ -6703,7 +6743,7 @@ qmLoad();
    - 파일 앞 2KB만 Range로 받아 확인하므로 데이터를 거의 안 씀(서버가 Range를 무시해도 동작은 함)
    - 캐시를 확실히 피하려고 일회용 ?nc= 를 붙여서 받음(브라우저가 그 주소를 캐시해도 다음엔 다른 번호라 무해)
    - GitHub Pages는 max-age=600이라 그냥 둬도 10분 뒤엔 새 파일을 받지만, 그걸 기다리지 않고 알려주기 위함 */
-const APP_BUILD = '2026-09-30a';
+const APP_BUILD = '2026-09-30b';
 const UPDATE_RECHECK_MS = 10 * 60 * 1000;
 let updateBannerShown = false, lastUpdateCheck = 0;
 function appBaseUrl(){ return location.pathname.replace(/[^/]*$/, ''); }
