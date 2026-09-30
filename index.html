@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>NotePen</title>
-<!-- build: 2026-09-30d (실험 모드에서 저지연 캔버스 제거 — 까만 화면) -->
+<!-- build: 2026-09-30e (실험 모드 예측선을 페이지 안으로 — 엉뚱한 곳에 선 표시 수정) -->
 <style>
   :root{
     --bg: #f4f3f1;
@@ -3348,33 +3348,58 @@ let lastPtScreen = null;
    투명 캔버스·화면 전체 오버레이에는 desynchronized를 쓰지 말 것. */
 const INK_LAB = /(?:^|[?&])lab=ink(?:&|$)/.test(location.search);
 let inkLabPrev = null;            // 예측 선 시작점 계산용(직전 화면 좌표)
+/* 예측선은 '그리는 중인 페이지 안'의 작은 캔버스에 그린다 (2026-09-30e).
+   처음엔 화면 전체를 덮는 position:fixed 캔버스에 화면 좌표로 그렸는데, 갤럭시 탭에서 필기를 작게 줄인 모양이
+   아래쪽에 따로 나타났다(오버레이와 페이지의 좌표계가 어긋남 — 브라우저 배율 등으로 추정).
+   페이지 블록 안에 두면 필기 캔버스와 똑같이 확대·이동되므로 어긋날 수 없다. 좌표도 필기와 같은 캔버스 px를 씀. */
+const PRED_BOX = 240;            // 예측선 캔버스 크기(CSS 페이지 px) — 펜 끝을 가운데에 두고 매번 옮김
 let predCanvas = null, predCtx = null;
-function ensurePredCanvas(){
-  if(predCanvas) return;
-  predCanvas = document.createElement('canvas');
-  predCanvas.className = 'np-pred-canvas';
-  Object.assign(predCanvas.style, {position:'fixed', left:'0', top:'0', width:'100vw', height:'100vh', pointerEvents:'none', zIndex:'9000'});
-  document.body.appendChild(predCanvas);
-  predCtx = predCanvas.getContext('2d');
-  const fit = ()=>{ const d = window.devicePixelRatio || 1;
-    predCanvas.width = Math.max(1, Math.round(innerWidth*d)); predCanvas.height = Math.max(1, Math.round(innerHeight*d));
-    predCtx.setTransform(d,0,0,d,0,0); };
-  fit(); window.addEventListener('resize', fit);
+function ensurePredCanvas(block){
+  if(!predCanvas){
+    predCanvas = document.createElement('canvas');
+    predCanvas.className = 'np-pred-canvas';
+    predCanvas.width = PRED_BOX * RES_SCALE; predCanvas.height = PRED_BOX * RES_SCALE;
+    Object.assign(predCanvas.style, {position:'absolute', left:'0px', top:'0px', width:PRED_BOX+'px', height:PRED_BOX+'px',
+      pointerEvents:'none', zIndex: String(CANVAS_Z_BASE + 200), display:'none'});
+    predCtx = predCanvas.getContext('2d');
+  }
+  if(block && predCanvas.parentElement !== block) block.appendChild(predCanvas);
 }
-function clearPrediction(){ if(predCtx) predCtx.clearRect(0, 0, predCanvas.width, predCanvas.height); }
+function clearPrediction(){
+  if(!predCtx) return;
+  predCtx.setTransform(1,0,0,1,0,0);
+  predCtx.clearRect(0, 0, predCanvas.width, predCanvas.height);
+  predCanvas.style.display = 'none';
+}
 function drawPrediction(e){
-  if(!INK_LAB || typeof e.getPredictedEvents !== 'function' || !lastPtScreen) return;
-  ensurePredCanvas(); clearPrediction();
+  if(!INK_LAB || typeof e.getPredictedEvents !== 'function' || !strokeCanvas || !currentStroke) return;
+  const pts = currentStroke.points;
+  if(!pts || pts.length < 1) return;
   let pr; try{ pr = e.getPredictedEvents(); }catch(err){ return; }
-  if(!pr || !pr.length) return;
-  const last = lastPtScreen, prev = inkLabPrev;
+  const block = strokeCanvas.parentElement;
+  ensurePredCanvas(block);
+  if(!pr || !pr.length){ clearPrediction(); return; }
+  const last = pts[pts.length-1], prev = pts.length >= 2 ? pts[pts.length-2] : null;
   const sx = prev ? (prev.x + last.x)/2 : last.x, sy = prev ? (prev.y + last.y)/2 : last.y; // 실제 선이 끝난 자리(중점)
-  predCtx.save();
+  const maxReach = (PRED_BOX/2 - 10) * RES_SCALE; // 상자 밖으로 튀는(엉뚱한) 예측점은 버림
+  const ahead = [];
+  for(const p of pr){
+    const q = coordFromEvent(p, strokeCanvas);
+    if(Math.abs(q.x - last.x) > maxReach || Math.abs(q.y - last.y) > maxReach) break;
+    ahead.push(q);
+  }
+  if(!ahead.length){ clearPrediction(); return; }
+  // 상자를 펜 끝 중심으로 옮김(CSS 페이지 px). 캔버스 1px = 필기 캔버스 1px
+  const ox = Math.round(last.x / RES_SCALE - PRED_BOX/2), oy = Math.round(last.y / RES_SCALE - PRED_BOX/2);
+  predCanvas.style.left = ox + 'px'; predCanvas.style.top = oy + 'px'; predCanvas.style.display = 'block';
+  predCtx.setTransform(1,0,0,1,0,0);
+  predCtx.clearRect(0, 0, predCanvas.width, predCanvas.height);
+  predCtx.setTransform(1,0,0,1, -ox*RES_SCALE, -oy*RES_SCALE);
   predCtx.lineCap = 'round'; predCtx.lineJoin = 'round'; predCtx.strokeStyle = color;
-  predCtx.lineWidth = Math.max(0.6, size * (0.5 + (e.pressure || 0.5)) * zoom);
+  predCtx.lineWidth = Math.max(0.6, size * RES_SCALE * (0.5 + (last.p || 0.5)));  // strokeQuadSegment와 같은 굵기
   predCtx.beginPath(); predCtx.moveTo(sx, sy); predCtx.lineTo(last.x, last.y);
-  pr.forEach(p=> predCtx.lineTo(p.clientX, p.clientY));
-  predCtx.stroke(); predCtx.restore();
+  ahead.forEach(q=> predCtx.lineTo(q.x, q.y));
+  predCtx.stroke();
 }
 if(INK_LAB){
   const badge = document.createElement('div');
@@ -6752,6 +6777,7 @@ function updateThumbnailSoon(){
       tmp.width = current.pages[0].width*scale; tmp.height = current.pages[0].height*scale;
       const tctx = tmp.getContext('2d');
       Array.from(block0.children).forEach(c=>{
+        if(c.classList && c.classList.contains('np-pred-canvas')) return; // 실험 모드 예측선은 썸네일에 안 넣음
         tctx.globalAlpha = c.style.opacity==='0' ? 0 : 1;
         tctx.drawImage(c, 0,0,tmp.width,tmp.height);
       });
@@ -6825,7 +6851,7 @@ qmLoad();
    - 파일 앞 2KB만 Range로 받아 확인하므로 데이터를 거의 안 씀(서버가 Range를 무시해도 동작은 함)
    - 캐시를 확실히 피하려고 일회용 ?nc= 를 붙여서 받음(브라우저가 그 주소를 캐시해도 다음엔 다른 번호라 무해)
    - GitHub Pages는 max-age=600이라 그냥 둬도 10분 뒤엔 새 파일을 받지만, 그걸 기다리지 않고 알려주기 위함 */
-const APP_BUILD = '2026-09-30d';
+const APP_BUILD = '2026-09-30e';
 const UPDATE_RECHECK_MS = 10 * 60 * 1000;
 let updateBannerShown = false, lastUpdateCheck = 0;
 function appBaseUrl(){ return location.pathname.replace(/[^/]*$/, ''); }
