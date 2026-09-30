@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>NotePen</title>
-<!-- build: 2026-09-30g (펜 예측 단축키 Ctrl+E → Ctrl+B) -->
+<!-- build: 2026-09-30h (빠른 메모 제거) -->
 <style>
   :root{
     --bg: #f4f3f1;
@@ -442,28 +442,6 @@
   }
   #page-scrub.editing #page-scrub-text{ display:none; }
   #page-scrub.editing #page-scrub-input{ display:block; }
-
-  /* ---------- 빠른 메모(퀵메모) ---------- */
-  #quickmemo-wrap{ position:fixed; left:12px; bottom:16px; z-index:55; }
-  #quickmemo-fab{
-    width:46px; height:46px; border-radius:50%; background:var(--accent); color:white; border:none;
-    font-size:19px; box-shadow:var(--shadow); cursor:pointer; display:flex; align-items:center; justify-content:center;
-  }
-  #quickmemo-panel{
-    position:absolute; bottom:56px; left:0; width:260px; background:var(--surface); border:1px solid var(--border);
-    border-radius:16px; box-shadow:var(--shadow); overflow:hidden; display:none;
-  }
-  #quickmemo-panel.open{ display:block; }
-  .qm-head{
-    display:flex; align-items:center; justify-content:space-between; padding:8px 10px; border-bottom:1px solid var(--border);
-    background:var(--surface-2);
-  }
-  .qm-title{ font-size:12.5px; font-weight:800; color:var(--text); }
-  .qm-tools{ display:flex; align-items:center; gap:7px; }
-  .qm-tools input[type=color]{ width:22px; height:22px; border:none; padding:0; border-radius:6px; background:none; cursor:pointer; }
-  .qm-tools input[type=range]{ width:52px; }
-  .qm-tools button{ background:transparent; border:none; font-size:14px; cursor:pointer; color:var(--text-dim); padding:2px; }
-  #quickmemo-canvas{ width:260px; height:190px; display:block; touch-action:none; background:#fffdf3; }
 
   /* ---------- 노트 위에 붙이는 이미지 ---------- */
   /* z-index를 필기 캔버스(20)보다 낮춰서, 이미지를 붙인 뒤(또는 전에) 그 위에 펜/형광펜으로 필기하면
@@ -1099,23 +1077,6 @@
       <button type="button" class="page-nav-btn" id="page-nav-down" title="다음 페이지">▼</button>
       <button type="button" class="page-nav-btn" id="page-scrub-handle" title="누른 채로 위아래로 드래그하면 페이지가 이동해요">⠿</button>
     </div>
-  </div>
-
-  <!-- QUICK MEMO -->
-  <div id="quickmemo-wrap">
-    <div id="quickmemo-panel">
-      <div class="qm-head">
-        <span class="qm-title">빠른 메모</span>
-        <div class="qm-tools">
-          <input type="color" id="qm-color" value="#1c1c1c">
-          <input type="range" id="qm-size" min="1" max="12" value="3">
-          <button id="qm-clear" title="지우기">🧹</button>
-          <button id="qm-close" title="닫기">✕</button>
-        </div>
-      </div>
-      <canvas id="quickmemo-canvas" width="520" height="380"></canvas>
-    </div>
-    <button id="quickmemo-fab" title="빠른 메모">📝</button>
   </div>
 
   <!-- LAYERS PANEL -->
@@ -6812,64 +6773,8 @@ function updateThumbnailSoon(){
   }, 500);
 }
 
-/* ================= 빠른 메모(퀵메모) ================= */
-const qmCanvas = document.getElementById('quickmemo-canvas');
-const qmCtx = qmCanvas.getContext('2d');
-let qmDrawing = false, qmLast = null;
-function qmCoord(e){
-  const rect = qmCanvas.getBoundingClientRect();
-  return {
-    x: (e.clientX - rect.left) * (qmCanvas.width / rect.width),
-    y: (e.clientY - rect.top) * (qmCanvas.height / rect.height)
-  };
-}
-function qmSave(){
-  try{ localStorage.setItem('notepen_quickmemo', qmCanvas.toDataURL('image/png')); }catch(err){ /* ignore */ }
-}
-function qmLoad(){
-  try{
-    const data = localStorage.getItem('notepen_quickmemo');
-    if(!data) return;
-    const img = new Image();
-    img.onload = ()=> qmCtx.drawImage(img, 0, 0, qmCanvas.width, qmCanvas.height);
-    img.src = data;
-  }catch(err){ /* ignore */ }
-}
-qmCanvas.addEventListener('pointerdown', (e)=>{
-  qmDrawing = true;
-  qmCanvas.setPointerCapture(e.pointerId);
-  qmLast = qmCoord(e);
-});
-qmCanvas.addEventListener('pointermove', (e)=>{
-  if(!qmDrawing) return;
-  const p = qmCoord(e);
-  const scaleFactor = qmCanvas.width / 260;
-  qmCtx.strokeStyle = document.getElementById('qm-color').value;
-  qmCtx.lineWidth = Math.max(1, parseInt(document.getElementById('qm-size').value,10) * scaleFactor);
-  qmCtx.lineCap = 'round'; qmCtx.lineJoin = 'round';
-  qmCtx.beginPath(); qmCtx.moveTo(qmLast.x, qmLast.y); qmCtx.lineTo(p.x, p.y); qmCtx.stroke();
-  qmLast = p;
-});
-function qmEndStroke(){ if(qmDrawing){ qmDrawing = false; qmSave(); } }
-qmCanvas.addEventListener('pointerup', qmEndStroke);
-qmCanvas.addEventListener('pointerleave', qmEndStroke);
-qmCanvas.addEventListener('pointercancel', qmEndStroke);
-
-document.getElementById('qm-clear').addEventListener('click', ()=>{
-  if(confirm('빠른 메모를 지울까요?')){
-    qmCtx.clearRect(0, 0, qmCanvas.width, qmCanvas.height);
-    qmSave();
-  }
-});
-document.getElementById('quickmemo-fab').addEventListener('click', (e)=>{
-  e.stopPropagation();
-  document.getElementById('quickmemo-panel').classList.add('open');
-});
-document.getElementById('qm-close').addEventListener('click', ()=>{
-  document.getElementById('quickmemo-panel').classList.remove('open');
-});
-document.getElementById('quickmemo-panel').addEventListener('click', (e)=> e.stopPropagation());
-qmLoad();
+/* 빠른 메모(왼쪽 아래 📝)는 2026-09-30 사용자 요청으로 제거. 예전 메모 그림은 이 기기의
+   localStorage['notepen_quickmemo']에 그대로 남아 있음(되살리려면 이 키를 읽으면 됨). */
 
 /* ================= 새 버전 자동 확인 =================
    주소 뒤에 ?v= 를 손으로 붙이지 않아도 되게, 앱이 스스로 서버의 빌드 표식을 읽어보고
@@ -6877,7 +6782,7 @@ qmLoad();
    - 파일 앞 2KB만 Range로 받아 확인하므로 데이터를 거의 안 씀(서버가 Range를 무시해도 동작은 함)
    - 캐시를 확실히 피하려고 일회용 ?nc= 를 붙여서 받음(브라우저가 그 주소를 캐시해도 다음엔 다른 번호라 무해)
    - GitHub Pages는 max-age=600이라 그냥 둬도 10분 뒤엔 새 파일을 받지만, 그걸 기다리지 않고 알려주기 위함 */
-const APP_BUILD = '2026-09-30g';
+const APP_BUILD = '2026-09-30h';
 const UPDATE_RECHECK_MS = 10 * 60 * 1000;
 let updateBannerShown = false, lastUpdateCheck = 0;
 function appBaseUrl(){ return location.pathname.replace(/[^/]*$/, ''); }
