@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>NotePen</title>
-<!-- build: 2026-10-03b (이면지 새 페이지 미리 붙이기 · 색 3초 꾹 = 쉬면 돌아오는 기본색) -->
+<!-- build: 2026-10-04a (페이지 모아보기 — 순서 바꾸기·복사·삭제) -->
 <style>
   :root{
     --bg: #f4f3f1;
@@ -451,6 +451,38 @@
     opacity:0; transition:opacity 0.12s; visibility:hidden;
   }
   #np-pen-tip.on{ opacity:1; visibility:visible; }
+  /* ---------- 페이지 모아보기 ---------- */
+  #page-overview{ position:fixed; inset:0; z-index:90; background:var(--bg); display:none; flex-direction:column; }
+  #page-overview.open{ display:flex; }
+  #ov-bar{ display:flex; align-items:center; gap:8px; padding:8px 10px; background:var(--surface); border-bottom:1px solid var(--border); flex:0 0 auto; min-height:54px; flex-wrap:wrap; }
+  #ov-title{ font-weight:800; font-size:15px; color:var(--text); white-space:nowrap; }
+  #ov-hint{ font-size:12.5px; color:var(--text-dim); flex:1 1 160px; min-width:0; }
+  .ov-btn{ border:1px solid var(--border); background:var(--surface-2); color:var(--text); border-radius:10px; padding:8px 12px; font-size:13.5px; font-weight:700; cursor:pointer; white-space:nowrap; }
+  .ov-btn.primary{ background:var(--accent); border-color:var(--accent); color:#fff; }
+  .ov-btn.danger{ background:var(--danger); border-color:var(--danger); color:#fff; }
+  .ov-btn:disabled{ opacity:0.4; }
+  #ov-scroll{ flex:1 1 auto; overflow-y:auto; overflow-x:hidden; touch-action:pan-y; -webkit-user-select:none; user-select:none; overscroll-behavior:contain; -webkit-touch-callout:none; }
+  #ov-grid{ display:grid; grid-template-columns:repeat(var(--ov-cols,5), minmax(0,1fr)); gap:20px 16px; padding:16px 16px 90px; align-items:end; }
+  .ov-cell{ display:flex; flex-direction:column; align-items:center; gap:5px; min-width:0; -webkit-touch-callout:none; }
+  .ov-thumb{ position:relative; width:100%; border-radius:5px; overflow:hidden; box-shadow:0 1px 5px rgba(0,0,0,0.25); outline:3px solid transparent; outline-offset:2px; transition:transform .12s; }
+  .ov-thumb canvas{ position:absolute; inset:0; display:block; width:100%; height:100%; }
+  .ov-cell.here .ov-thumb{ outline-color:rgba(43,107,217,0.55); }
+  .ov-num{ font-size:12px; font-weight:700; color:var(--text-dim); }
+  .ov-cell.here .ov-num{ color:var(--accent-2); }
+  .ov-check{ display:none; position:absolute; top:6px; right:6px; width:26px; height:26px; border-radius:50%; border:2px solid #fff; background:rgba(0,0,0,0.28); box-shadow:0 0 0 1px rgba(0,0,0,0.35); z-index:2; }
+  #page-overview.selecting .ov-check{ display:block; }
+  .ov-cell.sel .ov-check{ background:var(--accent); }
+  .ov-cell.sel .ov-check::after{ content:'✓'; position:absolute; inset:0; display:flex; align-items:center; justify-content:center; color:#fff; font-size:15px; font-weight:900; }
+  .ov-cell.sel .ov-thumb{ outline-color:var(--accent); }
+  .ov-cell.lifting .ov-thumb{ transform:scale(0.94); }
+  .ov-cell.drag-src{ opacity:0.35; }
+  #ov-ins{ position:fixed; width:5px; margin-left:-2.5px; background:var(--accent-2); border-radius:3px; display:none; z-index:95; pointer-events:none; box-shadow:0 0 0 2px rgba(255,255,255,0.8); }
+  #ov-ghost{ position:fixed; z-index:96; pointer-events:none; display:none; width:90px; transform:translate(-50%,-60%) rotate(-4deg); }
+  #ov-ghost canvas{ width:100%; display:block; border-radius:5px; box-shadow:0 8px 22px rgba(0,0,0,0.35); background:#fff; }
+  #ov-ghost span{ position:absolute; top:-10px; right:-10px; background:var(--accent); color:#fff; font-weight:800; font-size:13px; border-radius:999px; padding:3px 8px; box-shadow:var(--shadow); }
+  #ov-undo{ position:fixed; bottom:24px; left:50%; transform:translateX(-50%); z-index:97; display:none; align-items:center; gap:10px; background:rgba(30,30,34,0.95); color:#fff; padding:7px 7px 7px 16px; border-radius:999px; font-size:13.5px; font-weight:700; box-shadow:var(--shadow); white-space:nowrap; }
+  #ov-undo.show{ display:flex; }
+  #ov-undo button{ border:none; background:var(--accent); color:#fff; font-weight:800; border-radius:999px; padding:7px 14px; font-size:13.5px; }
   #page-scrub{
     background:rgba(30,30,34,0.82); color:white; border-radius:999px; padding:8px 4px;
     display:flex; align-items:center; justify-content:center; min-width:34px; min-height:44px;
@@ -1001,6 +1033,7 @@
       <span class="page-indicator" id="page-indicator" title="지금 페이지 / 전체 페이지">1/1</span>
       <button class="icon-btn" id="btn-prev" title="이전 페이지">‹</button>
       <button class="icon-btn" id="btn-next" title="다음 페이지">›</button>
+      <button class="icon-btn" id="btn-overview" title="페이지 모아보기 — 모든 페이지를 작게 보기·순서 바꾸기·복사·삭제">▦</button>
       <button class="icon-btn" id="btn-note-sync" title="이 노트 동기화 제외/포함">☁️</button>
       <button class="icon-btn" id="btn-layers" title="레이어(층) 관리">▤</button>
       <button class="icon-btn" id="btn-fullscreen" title="전체화면">⛶</button>
@@ -1085,6 +1118,13 @@
       <button class="icon-btn" id="btn-add-shortcut" title="새 노트 바로가기 아이콘 추가"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><defs><mask id="npchain"><rect width="24" height="24" fill="#fff"/><g transform="rotate(-45 12 12)"><rect x="8.9" y="5.4" width="4" height="13.2" fill="#000"/></g></mask></defs><g transform="rotate(-45 12 12)" fill="none" stroke="currentColor" stroke-width="3"><rect x="1.2" y="7.4" width="12" height="9.2" rx="4.6" mask="url(#npchain)"/><rect x="10.8" y="7.4" width="12" height="9.2" rx="4.6"/></g></svg></button>
     </div>
     <input type="file" accept="image/*" class="hidden-input" id="image-input">
+    <div id="page-overview">
+      <div id="ov-bar"></div>
+      <div id="ov-scroll"><div id="ov-grid"></div></div>
+    </div>
+    <div id="ov-ins"></div>
+    <div id="ov-ghost"></div>
+    <div id="ov-undo"></div>
     <div class="canvas-wrap" id="canvas-wrap">
       <div class="page-stack" id="page-stack"></div>
     </div>
@@ -3103,7 +3143,7 @@ function buildBlockContent(block, idx){
   paintPageBackground(bctx, page, baseCanvas.width, baseCanvas.height);
 
   if(current.type === 'pdf' && pdfDoc){
-    pdfDoc.getPage(idx+1).then(p=>{
+    pdfDoc.getPage(pdfPageNo(page, idx)).then(p=>{
       const vp = p.getViewport({scale: 2*RES_SCALE});
       return p.render({canvasContext: bctx, viewport: vp}).promise;
     }).catch(err=>console.error('PDF render failed', err));
@@ -6600,7 +6640,7 @@ const PEN_TIP_DELAY_MS = 400;
 const penTipEl = document.createElement('div'); penTipEl.id = 'np-pen-tip'; document.body.appendChild(penTipEl);
 let penTipTarget = null, penTipTimer = null;
 function penTipTargetOf(node){
-  const el = node && node.closest ? node.closest('#editor .topbar [title], #editor .toolbar [title], #page-nav [title]') : null;
+  const el = node && node.closest ? node.closest('#editor .topbar [title], #editor .toolbar [title], #page-nav [title], #page-overview [title]') : null;
   if(!el || el.matches('.page-nav-btn[data-tip]')) return null; // 오른쪽 목차·이면지 버튼은 기존 이름표 사용
   if(el.offsetParent === null) return null;
   return el;
@@ -6720,6 +6760,554 @@ pageScrubInput.addEventListener('keydown', (e)=>{
   else if(e.key==='Escape'){ pageScrubEl.classList.remove('editing'); }
 });
 pageScrubInput.addEventListener('blur', commitPageScrub);
+
+/* ---------- 페이지 모아보기 (2026-10-04) ----------
+   제목줄 ▦ 버튼 → 모든 페이지를 작게 격자로 봄(한 줄 5장 기본, 두 손가락 벌리기/오므리기로 장수 조절).
+   페이지를 누르면 그 페이지로 이동, 꾹 누르면 선택 모드(체크 표시) → 여러 장 골라 끌어 옮기기·삭제·복사.
+   ⚠️ 페이지 순서가 바뀌면 이 노트의 목차, 이 노트를 가리키는 바로가기(이 노트·다른 노트), 다른 노트의 linkedFrom도
+      쪽 번호를 같이 고친다(remapPageRefs). PDF 노트는 페이지마다 원래 PDF 쪽 번호(page.pdfPage)를 기억해 그린다. */
+const OV_COLS_KEY = 'notepen_overview_cols';
+const OV_MIN_COLS = 1, OV_MAX_COLS = 12, OV_HOLD_MS = 500, OV_MOVE_SLOP = 10;
+let ovCols = 5;
+try{ const v = parseInt(localStorage.getItem(OV_COLS_KEY), 10); if(v >= OV_MIN_COLS && v <= OV_MAX_COLS) ovCols = v; }catch(e){}
+const ovEl = document.getElementById('page-overview');
+const ovScroll = document.getElementById('ov-scroll');
+const ovGrid = document.getElementById('ov-grid');
+const ovBar = document.getElementById('ov-bar');
+const ovInsEl = document.getElementById('ov-ins');
+const ovGhostEl = document.getElementById('ov-ghost');
+const ovUndoEl = document.getElementById('ov-undo');
+let ovOpen = false, ovMode = 'view';   // 'view' | 'select' | 'place' | 'confirm'
+const ovSel = new Set();               // 선택된 페이지 객체
+let ovClip = null;                     // 복사해서 놓을 자리를 기다리는 페이지 사본들
+let ovDirty = false;                   // 모아보기에서 순서·장수가 바뀜 → 닫을 때 본 화면을 다시 그림
+let ovViewing = null;                  // 모아보기를 열 때 보고 있던 페이지(객체) — 순서가 바뀌어도 그 페이지로 돌아가기 위함
+let ovObserver = null;
+const ovVisible = new Set();
+let ovQueue = [], ovRendering = false, ovGen = 0;
+
+function pdfPageNo(page, idx){ return page.pdfPage || (idx + 1); }
+function materializePdfPages(){
+  // 예전 PDF 노트는 'n번째 페이지 = PDF n쪽'이 암묵적이었음 → 순서를 바꾸기 전에 각 페이지에 원래 쪽 번호를 박아둠
+  if(current && current.type === 'pdf') current.pages.forEach((p, i)=>{ if(!p.pdfPage) p.pdfPage = i + 1; });
+}
+
+/* --- 썸네일 그리기 --- */
+function ovNeedWidth(cell){
+  const box = cell.querySelector('.ov-thumb');
+  return Math.min(1000, Math.max(60, Math.round((box ? box.clientWidth : 120) * (window.devicePixelRatio || 1))));
+}
+function ovQueueRender(cell){
+  if(!ovQueue.includes(cell)) ovQueue.push(cell);
+  ovPump();
+}
+async function ovPump(){
+  if(ovRendering) return;
+  ovRendering = true;
+  try{
+    while(ovQueue.length){
+      const cell = ovQueue.shift();
+      if(!ovOpen || !cell.isConnected || !ovVisible.has(cell)) continue;
+      const cv = cell.querySelector('canvas');
+      const need = ovNeedWidth(cell);
+      if(+cv.dataset.rw >= need * 0.75) continue;
+      await renderPageThumb(cv, current.pages[+cell.dataset.idx], +cell.dataset.idx, need, ovGen);
+    }
+  } finally { ovRendering = false; }
+}
+function loadImg(src){
+  return new Promise(res=>{ const im = new Image(); im.onload = ()=>res(im); im.onerror = ()=>res(null); im.src = src; });
+}
+async function renderPageThumb(cv, page, idx, W, gen){
+  if(!page) return;
+  const H = Math.max(1, Math.round(W * page.height / page.width));
+  const off = document.createElement('canvas'); off.width = W; off.height = H;
+  const ctx = off.getContext('2d');
+  const s = W / (page.width * RES_SCALE), cs = W / page.width;
+  ctx.save(); ctx.scale(s, s); paintPageBackground(ctx, page, page.width * RES_SCALE, page.height * RES_SCALE); ctx.restore();
+  if(current.type === 'pdf' && pdfDoc){
+    try{
+      const p = await pdfDoc.getPage(pdfPageNo(page, idx));
+      const vp1 = p.getViewport({scale:1});
+      await p.render({canvasContext: ctx, viewport: p.getViewport({scale: W / vp1.width})}).promise;
+    }catch(err){ /* PDF를 못 그려도 필기는 보여줌 */ }
+  }
+  const imgs = await Promise.all((page.images || []).map(im=> loadImg(im.src)));
+  if(gen !== ovGen) return;
+  (page.images || []).forEach((im, i)=>{ if(imgs[i]) ctx.drawImage(imgs[i], im.x * cs, im.y * cs, im.w * cs, im.h * cs); });
+  // 레이어마다 따로 그린 뒤 겹침(drawLayer가 캔버스를 비우고 그리므로 공용 캔버스에 바로 그리면 안 됨)
+  const lc = document.createElement('canvas'); lc.width = W; lc.height = H;
+  const lctx = lc.getContext('2d');
+  (page.layers || []).forEach(layer=>{
+    if(layer.visible === false) return;
+    lctx.setTransform(1,0,0,1,0,0); lctx.clearRect(0, 0, W, H);
+    lctx.setTransform(s, 0, 0, s, 0, 0);
+    if(!layer.masks) layer.masks = [];
+    layer.strokes.forEach(st=> drawStroke(lctx, st));
+    layer.masks.forEach(m=> drawMask(lctx, m));
+    ctx.drawImage(lc, 0, 0);
+  });
+  (page.texts || []).forEach(tx=>{
+    const fs = (tx.size || 20) * cs; if(fs < 1.5) return;
+    ctx.fillStyle = tx.color || '#000'; ctx.textBaseline = 'top';
+    ctx.font = `${fs}px 'Malgun Gothic','Apple SD Gothic Neo','Noto Sans KR',sans-serif`;
+    String(tx.text || '').split('\n').forEach((line, li)=> ctx.fillText(line, (tx.x + 6.5) * cs, (tx.y + 3.5) * cs + li * fs * 1.35));
+  });
+  if(gen !== ovGen || !cv.isConnected) return;
+  cv.width = W; cv.height = H; cv.getContext('2d').drawImage(off, 0, 0);
+  cv.dataset.rw = W;
+}
+
+/* --- 격자 만들기 --- */
+function ovSetupObserver(){
+  if(ovObserver) ovObserver.disconnect();
+  ovVisible.clear();
+  ovObserver = new IntersectionObserver((entries)=>{
+    entries.forEach(en=>{
+      const cell = en.target;
+      if(en.isIntersecting){ ovVisible.add(cell); ovQueueRender(cell); }
+      else {
+        ovVisible.delete(cell);
+        const cv = cell.querySelector('canvas'); // 멀리 벗어난 썸네일은 비워서 메모리 회수
+        if(cv && +cv.dataset.rw){ cv.width = 1; cv.height = 1; cv.dataset.rw = 0; }
+      }
+    });
+  }, { root: ovScroll, rootMargin: '700px 0px 700px 0px' });
+}
+function ovBuild(){
+  ovGen++;
+  ovQueue = [];
+  ovSetupObserver();
+  ovGrid.innerHTML = '';
+  ovGrid.style.setProperty('--ov-cols', ovCols);
+  const hereIdx = ovViewing ? current.pages.indexOf(ovViewing) : curPage;
+  current.pages.forEach((p, i)=>{
+    const cell = document.createElement('div');
+    cell.className = 'ov-cell' + (ovSel.has(p) ? ' sel' : '') + (i === hereIdx ? ' here' : '');
+    cell.dataset.idx = i;
+    const box = document.createElement('div'); box.className = 'ov-thumb';
+    box.style.aspectRatio = p.width + ' / ' + p.height;
+    box.style.background = p.bgColor || '#ffffff';
+    const cv = document.createElement('canvas'); cv.width = 1; cv.height = 1; cv.dataset.rw = 0;
+    const chk = document.createElement('div'); chk.className = 'ov-check';
+    box.appendChild(cv); box.appendChild(chk);
+    const num = document.createElement('div'); num.className = 'ov-num'; num.textContent = i + 1;
+    cell.appendChild(box); cell.appendChild(num);
+    ovGrid.appendChild(cell);
+    ovObserver.observe(cell);
+  });
+  ovRenderBar();
+}
+function ovCellOf(idx){ return ovGrid.querySelector(`.ov-cell[data-idx="${idx}"]`); }
+function ovRefreshSelClasses(){
+  ovGrid.querySelectorAll('.ov-cell').forEach(c=> c.classList.toggle('sel', ovSel.has(current.pages[+c.dataset.idx])));
+  ovRenderBar();
+}
+function ovBtn(label, cls, fn, title){
+  const b = document.createElement('button'); b.type = 'button'; b.className = 'ov-btn' + (cls ? ' ' + cls : '');
+  b.textContent = label; if(title) b.title = title;
+  b.addEventListener('click', (e)=>{ e.stopPropagation(); fn(); });
+  return b;
+}
+function ovRenderBar(confirmMsg, onYes){
+  ovBar.innerHTML = '';
+  ovEl.classList.toggle('selecting', ovMode === 'select' || ovMode === 'confirm');
+  const title = document.createElement('span'); title.id = 'ov-title';
+  const hint = document.createElement('span'); hint.id = 'ov-hint';
+  const n = current ? current.pages.length : 0;
+  if(ovMode === 'view'){
+    ovBar.appendChild(ovBtn('← 돌아가기', '', ()=> closeOverview(), '필기 화면으로 돌아가기'));
+    title.textContent = '페이지 ' + n + '장';
+    hint.textContent = '누르면 그 페이지로 · 꾹 누르면 여러 장 선택 · 두 손가락으로 크기 조절';
+    ovBar.appendChild(title); ovBar.appendChild(hint);
+    ovBar.appendChild(ovBtn('－', '', ()=> ovSetCols(ovCols + 1), '작게 (한 줄에 더 많이)'));
+    ovBar.appendChild(ovBtn('＋', '', ()=> ovSetCols(ovCols - 1), '크게 (한 줄에 더 적게)'));
+  } else if(ovMode === 'select'){
+    const k = ovSel.size;
+    ovBar.appendChild(ovBtn('✕', '', ()=> ovExitSelect(), '선택 끝내기'));
+    title.textContent = k + '장 선택';
+    hint.textContent = k ? '선택한 페이지를 꾹 눌러 끌면 옮겨져요' : '페이지를 눌러 선택하세요';
+    ovBar.appendChild(title); ovBar.appendChild(hint);
+    ovBar.appendChild(ovBtn(k === n ? '전체 해제' : '전체 선택', '', ()=>{
+      if(ovSel.size === n) ovSel.clear(); else current.pages.forEach(p=> ovSel.add(p));
+      ovRefreshSelClasses();
+    }));
+    const cp = ovBtn('복사', 'primary', ()=> ovStartCopy(), '복사한 뒤 넣을 자리를 누르기'); cp.disabled = !k;
+    const del = ovBtn('삭제', 'danger', ()=> ovAskDelete(), '선택한 페이지 삭제'); del.disabled = !k;
+    ovBar.appendChild(cp); ovBar.appendChild(del);
+  } else if(ovMode === 'place'){
+    ovBar.appendChild(ovBtn('취소', '', ()=>{ ovClip = null; ovMode = ovSel.size ? 'select' : 'view'; ovHideIns(); ovRenderBar(); }));
+    title.textContent = ovClip.length + '장 복사됨';
+    hint.textContent = '넣을 자리를 누르세요 — 페이지의 왼쪽 절반은 그 앞, 오른쪽 절반은 그 뒤';
+    ovBar.appendChild(title); ovBar.appendChild(hint);
+  } else if(ovMode === 'confirm'){
+    title.textContent = confirmMsg;
+    ovBar.appendChild(title);
+    const sp = document.createElement('span'); sp.style.flex = '1'; ovBar.appendChild(sp);
+    ovBar.appendChild(ovBtn('취소', '', ()=>{ ovMode = 'select'; ovRenderBar(); }));
+    ovBar.appendChild(ovBtn('삭제', 'danger', onYes));
+  }
+}
+function ovSetCols(c, anchorIdx){
+  c = Math.max(OV_MIN_COLS, Math.min(OV_MAX_COLS, Math.round(c)));
+  if(c === ovCols) return;
+  // 크기를 바꿔도 보고 있던 페이지가 화면에서 사라지지 않게, 기준 페이지의 화면 위치를 유지
+  const sr = ovScroll.getBoundingClientRect();
+  let ref = (typeof anchorIdx === 'number') ? ovCellOf(anchorIdx) : null;
+  if(!ref){
+    const midY = sr.top + sr.height / 2;
+    ref = [...ovGrid.children].find(cel=>{ const r = cel.getBoundingClientRect(); return r.bottom >= midY; });
+  }
+  const before = ref ? ref.getBoundingClientRect().top : 0;
+  ovCols = c;
+  ovGrid.style.setProperty('--ov-cols', ovCols);
+  try{ localStorage.setItem(OV_COLS_KEY, String(ovCols)); }catch(e){}
+  if(ref) ovScroll.scrollTop += ref.getBoundingClientRect().top - before;
+  ovVisible.forEach(cell=> ovQueueRender(cell)); // 커진 썸네일은 더 선명하게 다시 그림
+}
+
+/* --- 열기·닫기 --- */
+function openOverview(){
+  if(!current || ovOpen) return;
+  if(editingText) commitEditText();
+  clearSelection();
+  ovOpen = true; ovMode = 'view'; ovSel.clear(); ovClip = null; ovDirty = false;
+  ovViewing = current.pages[curPage] || null;
+  ovEl.classList.add('open');
+  ovBuild();
+  const c = ovCellOf(curPage);
+  if(c) ovScroll.scrollTop = Math.max(0, c.offsetTop - ovScroll.clientHeight / 2 + c.offsetHeight / 2);
+}
+function closeOverview(goIdx){
+  if(!ovOpen) return;
+  ovOpen = false; ovMode = 'view'; ovSel.clear(); ovClip = null;
+  ovEndPointer(); ovHideIns(); ovHideUndo();
+  ovEl.classList.remove('open', 'selecting');
+  if(ovObserver) ovObserver.disconnect();
+  ovGen++; ovQueue = []; ovGrid.innerHTML = '';
+  let target = (typeof goIdx === 'number') ? goIdx : (ovViewing ? current.pages.indexOf(ovViewing) : curPage);
+  if(!(target >= 0)) target = Math.min(curPage, current.pages.length - 1);
+  if(ovDirty){
+    ovDirty = false;
+    curPage = target;
+    renderAllPages();
+    if(typeof renderToc === 'function') renderToc();
+  }
+  curPage = target;
+  scrollToPage(target);
+  updatePageIndicatorDisplay();
+  saveLastPos(true);
+}
+function ovExitSelect(){ ovSel.clear(); ovMode = 'view'; ovHideIns(); ovRefreshSelClasses(); }
+
+/* --- 쪽 번호 참조 고치기 (목차·바로가기·linkedFrom) --- */
+// map[옛 번호] = 새 번호(지워졌으면 -1). 지워진 쪽을 가리키던 참조는 바로 다음에 남은 쪽(없으면 앞쪽)으로.
+function ovNearest(map, oldIdx){
+  for(let j = oldIdx; j < map.length; j++) if(map[j] >= 0) return map[j];
+  for(let j = oldIdx - 1; j >= 0; j--) if(map[j] >= 0) return map[j];
+  return 0;
+}
+async function remapPageRefs(map, oldPages){
+  const id = current.id;
+  const fix = (v)=> (typeof v === 'number' && v >= 0 && v < map.length) ? ovNearest(map, v) : v;
+  const undo = [];
+  // 이 노트 안 (지워진 페이지의 아이콘까지 고쳐둬야 되돌렸을 때도 맞음 → 옛 배열 기준으로 돎)
+  const toc = Array.isArray(current.toc) ? current.toc : [];
+  toc.forEach(item=>{ const o = item.page; const nv = fix(o); if(nv !== o){ undo.push(()=>{ item.page = o; }); item.page = nv; } });
+  oldPages.forEach(pg=> (pg.shortcuts || []).forEach(sc=>{
+    if(sc.linkedNotebookId === id && typeof sc.linkedPage === 'number'){
+      const o = sc.linkedPage, nv = fix(o); if(nv !== o){ undo.push(()=>{ sc.linkedPage = o; }); sc.linkedPage = nv; }
+    }
+    if(sc.pair && sc.pair.noteId === id){
+      const o = sc.pair.pageIdx, nv = fix(o); if(nv !== o){ const pr = sc.pair; undo.push(()=>{ pr.pageIdx = o; }); pr.pageIdx = nv; }
+    }
+  }));
+  // 다른 노트 (그 노트를 고쳐 저장 → 동기화)
+  const others = [];
+  try{
+    const all = await dbGetAll();
+    for(const nb of all){
+      if(nb.id === id) continue;
+      const changes = [];
+      (nb.pages || []).forEach((pg, pi)=> (pg.shortcuts || []).forEach(sc=>{
+        if(sc.linkedNotebookId === id && typeof sc.linkedPage === 'number'){
+          const o = sc.linkedPage, nv = fix(o); if(nv !== o){ changes.push({pi, sid: sc.id, k:'linkedPage', o}); sc.linkedPage = nv; }
+        }
+        if(sc.pair && sc.pair.noteId === id){
+          const o = sc.pair.pageIdx, nv = fix(o); if(nv !== o){ changes.push({pi, sid: sc.id, k:'pair', o}); sc.pair.pageIdx = nv; }
+        }
+      }));
+      if(nb.linkedFrom && nb.linkedFrom.notebookId === id){
+        const o = nb.linkedFrom.pageIdx, nv = fix(o); if(nv !== o){ changes.push({k:'from', o}); nb.linkedFrom.pageIdx = nv; }
+      }
+      if(changes.length){ nb.updatedAt = Date.now(); await dbPut(nb); others.push({id: nb.id, changes}); }
+    }
+  }catch(err){ console.error('쪽 번호 참조 고치기 실패', err); }
+  return async ()=>{
+    undo.reverse().forEach(f=> f());
+    for(const o of others){
+      const nb = await dbGetOne(o.id); if(!nb) continue;
+      o.changes.forEach(c=>{
+        if(c.k === 'from'){ if(nb.linkedFrom) nb.linkedFrom.pageIdx = c.o; return; }
+        const pg = nb.pages[c.pi]; const sc = pg && (pg.shortcuts || []).find(s=> s.id === c.sid); if(!sc) return;
+        if(c.k === 'linkedPage') sc.linkedPage = c.o; else if(sc.pair) sc.pair.pageIdx = c.o;
+      });
+      nb.updatedAt = Date.now(); await dbPut(nb);
+    }
+  };
+}
+
+/* --- 실제 변경 (옮기기·복사·삭제 공통) --- */
+async function ovApply(newPages, msg){
+  materializePdfPages();
+  const oldPages = current.pages.slice();
+  const map = oldPages.map(p=> newPages.indexOf(p));
+  const refsUndo = await remapPageRefs(map, oldPages);
+  current.pages = newPages;
+  // 페이지 번호가 바뀌어 기존 되돌리기 기록(페이지 번호 기준)이 엉뚱한 쪽을 건드릴 수 있으므로 비움
+  history.length = 0; redoStack.length = 0;
+  if(ovViewing && newPages.indexOf(ovViewing) < 0) ovViewing = newPages[Math.min(Math.max(0, ovNearest(map, oldPages.indexOf(ovViewing))), newPages.length - 1)];
+  curPage = Math.max(0, Math.min(newPages.indexOf(ovViewing), newPages.length - 1));
+  ovDirty = true;
+  ovSel.clear(); ovClip = null; ovMode = 'view';
+  await persist(true);
+  ovBuild();
+  const viewingBefore = ovViewing;
+  ovShowUndo(msg, async ()=>{
+    await refsUndo();
+    current.pages = oldPages;
+    history.length = 0; redoStack.length = 0;
+    ovViewing = viewingBefore && oldPages.includes(viewingBefore) ? viewingBefore : oldPages[0];
+    curPage = Math.max(0, oldPages.indexOf(ovViewing));
+    ovDirty = true;
+    await persist(true);
+    updateThumbnailSoon();
+    if(ovOpen){ ovSel.clear(); ovMode = 'view'; ovBuild(); }
+    else { renderAllPages(); scrollToPage(curPage); if(typeof renderToc === 'function') renderToc(); }
+    toast('되돌렸어요');
+  });
+}
+function ovSelectedInOrder(){ return current.pages.filter(p=> ovSel.has(p)); }
+async function ovMoveTo(gap){
+  const sel = ovSelectedInOrder(); if(!sel.length) return;
+  const before = current.pages.slice(0, gap).filter(p=> !ovSel.has(p)).length;
+  const rest = current.pages.filter(p=> !ovSel.has(p));
+  const np = rest.slice(0, before).concat(sel, rest.slice(before));
+  if(np.every((p, i)=> p === current.pages[i])){ ovRefreshSelClasses(); return; } // 제자리
+  await ovApply(np, sel.length + '장을 옮겼어요');
+}
+function clonePageForCopy(p){
+  const c = JSON.parse(JSON.stringify(p));
+  const rnd = ()=> Date.now() + '_' + Math.random().toString(36).slice(2,6);
+  (c.images || []).forEach(im=> im.id = 'img_' + rnd());
+  (c.texts || []).forEach(tx=> tx.id = 'txt_' + rnd());
+  c.shortcuts = []; // 바로가기 아이콘은 다른 노트와 1:1로 짝지어져 있어 복사본에는 넣지 않음
+  return c;
+}
+function ovStartCopy(){
+  materializePdfPages();
+  ovClip = ovSelectedInOrder().map(clonePageForCopy);
+  if(!ovClip.length) return;
+  ovMode = 'place';
+  ovRenderBar();
+}
+async function ovPasteAt(gap){
+  if(!ovClip) return;
+  const clip = ovClip;
+  const np = current.pages.slice(0, gap).concat(clip, current.pages.slice(gap));
+  await ovApply(np, clip.length + '장을 복사해 넣었어요');
+}
+function ovAskDelete(){
+  const k = ovSel.size; if(!k) return;
+  if(k >= current.pages.length){ toast('모든 페이지를 지울 수는 없어요 — 한 장은 남겨야 해요'); return; }
+  ovMode = 'confirm';
+  ovRenderBar('선택한 ' + k + '장을 삭제할까요?', async ()=>{
+    const np = current.pages.filter(p=> !ovSel.has(p));
+    await ovApply(np, k + '장을 삭제했어요');
+  });
+}
+let ovUndoTimer = null, ovUndoFn = null;
+function ovShowUndo(msg, fn){
+  ovUndoFn = fn;
+  ovUndoEl.innerHTML = '';
+  const t = document.createElement('span'); t.textContent = msg;
+  const b = document.createElement('button'); b.type = 'button'; b.textContent = '되돌리기';
+  b.addEventListener('click', async ()=>{ const f = ovUndoFn; ovHideUndo(); if(f) await f(); });
+  ovUndoEl.appendChild(t); ovUndoEl.appendChild(b);
+  ovUndoEl.classList.add('show');
+  clearTimeout(ovUndoTimer); ovUndoTimer = setTimeout(ovHideUndo, 10000);
+}
+function ovHideUndo(){ clearTimeout(ovUndoTimer); ovUndoFn = null; ovUndoEl.classList.remove('show'); }
+
+/* --- 끌어 옮기기·넣을 자리 표시 --- */
+// 화면 좌표 → 넣을 자리(gap: 0~페이지 수). 가장 가까운 페이지의 왼쪽 절반이면 그 앞, 오른쪽 절반이면 그 뒤.
+function ovGapFromPoint(x, y){
+  let best = null, bd = Infinity;
+  ovGrid.querySelectorAll('.ov-cell').forEach(cel=>{
+    const r = cel.querySelector('.ov-thumb').getBoundingClientRect();
+    const dx = x < r.left ? r.left - x : (x > r.right ? x - r.right : 0);
+    const dy = y < r.top ? r.top - y : (y > r.bottom ? y - r.bottom : 0);
+    const d = dx * dx + dy * dy * 4;
+    if(d < bd){ bd = d; best = {cel, r}; }
+  });
+  if(!best) return null;
+  const idx = +best.cel.dataset.idx;
+  const after = x > best.r.left + best.r.width / 2;
+  return { gap: after ? idx + 1 : idx, r: best.r, after };
+}
+function ovShowIns(g){
+  if(!g){ ovHideIns(); return; }
+  const gapPx = 8;
+  ovInsEl.style.left = (g.after ? g.r.right + gapPx : g.r.left - gapPx) + 'px';
+  ovInsEl.style.top = (g.r.top - 4) + 'px';
+  ovInsEl.style.height = (g.r.height + 8) + 'px';
+  ovInsEl.style.display = 'block';
+}
+function ovHideIns(){ ovInsEl.style.display = 'none'; }
+
+let ovP = null;           // 지금 누르고 있는 포인터 하나의 상태
+const ovTouches = new Map();
+let ovPinch = null, ovDrag = null, ovAutoRaf = null;
+function ovEndPointer(){
+  if(ovP){ clearTimeout(ovP.timer); if(ovP.cell) ovP.cell.classList.remove('lifting'); }
+  ovP = null;
+  if(ovDrag){
+    ovGrid.querySelectorAll('.drag-src').forEach(c=> c.classList.remove('drag-src'));
+    ovGhostEl.style.display = 'none';
+  }
+  ovDrag = null;
+  cancelAnimationFrame(ovAutoRaf); ovAutoRaf = null;
+}
+function ovStartDrag(){
+  ovDrag = { x: ovP.x, y: ovP.y, gap: null };
+  try{ ovScroll.setPointerCapture(ovP.id); }catch(err){}
+  if(ovP.cell) ovP.cell.classList.remove('lifting');
+  ovGrid.querySelectorAll('.ov-cell').forEach(c=>{ if(ovSel.has(current.pages[+c.dataset.idx])) c.classList.add('drag-src'); });
+  // 끌고 다니는 미리보기: 선택한 첫 장 썸네일 + 장수
+  ovGhostEl.innerHTML = '';
+  const first = ovGrid.querySelector('.ov-cell.sel canvas');
+  const g = document.createElement('canvas');
+  if(first && first.width > 1){ g.width = first.width; g.height = first.height; g.getContext('2d').drawImage(first, 0, 0); }
+  else { g.width = 60; g.height = 80; }
+  const n = document.createElement('span'); n.textContent = ovSel.size + '장';
+  ovGhostEl.appendChild(g); ovGhostEl.appendChild(n);
+  ovGhostEl.style.display = 'block';
+  ovDragMove(ovP.x, ovP.y);
+  const step = ()=>{
+    if(!ovDrag) return;
+    const r = ovScroll.getBoundingClientRect(), edge = 70;
+    let v = 0;
+    if(ovDrag.y < r.top + edge) v = -Math.ceil((r.top + edge - ovDrag.y) / 5);
+    else if(ovDrag.y > r.bottom - edge) v = Math.ceil((ovDrag.y - (r.bottom - edge)) / 5);
+    if(v){ ovScroll.scrollTop += v; ovDragMove(ovDrag.x, ovDrag.y); }
+    ovAutoRaf = requestAnimationFrame(step);
+  };
+  ovAutoRaf = requestAnimationFrame(step);
+}
+function ovDragMove(x, y){
+  ovDrag.x = x; ovDrag.y = y;
+  ovGhostEl.style.left = x + 'px'; ovGhostEl.style.top = y + 'px';
+  const g = ovGapFromPoint(x, y);
+  ovDrag.gap = g ? g.gap : null;
+  ovShowIns(g);
+}
+ovScroll.addEventListener('pointerdown', (e)=>{
+  if(!ovOpen) return;
+  if(e.pointerType === 'touch') ovTouches.set(e.pointerId, {x:e.clientX, y:e.clientY});
+  if(ovTouches.size >= 2){
+    // 두 손가락: 크기 조절(진행 중이던 누르기·끌기는 취소)
+    ovEndPointer();
+    const [a, b] = [...ovTouches.values()];
+    const g = ovGapFromPoint((a.x + b.x) / 2, (a.y + b.y) / 2);
+    ovPinch = { d0: Math.hypot(a.x - b.x, a.y - b.y) || 1, cols0: ovCols, anchor: g ? Math.min(g.gap, current.pages.length - 1) : undefined };
+    return;
+  }
+  if(ovP || ovPinch) return;
+  const cell = e.target.closest('.ov-cell');
+  ovP = { id: e.pointerId, x: e.clientX, y: e.clientY, x0: e.clientX, y0: e.clientY, cell, moved: false, long: false, armed: false, timer: null };
+  if(ovMode === 'place'){ ovShowIns(ovGapFromPoint(e.clientX, e.clientY)); return; }
+  if(!cell || ovMode === 'confirm') return;
+  ovP.timer = setTimeout(()=>{
+    if(!ovP || ovP.moved) return;
+    ovP.long = true;
+    const p = current.pages[+cell.dataset.idx];
+    if(ovMode === 'view'){ ovMode = 'select'; ovSel.add(p); ovRefreshSelClasses(); }
+    else if(!ovSel.has(p)){ ovSel.add(p); ovRefreshSelClasses(); }
+    // 꾹 누른 뒤 그대로 끌면 선택한 페이지들을 옮김
+    ovP.armed = true; cell.classList.add('lifting');
+    try{ navigator.vibrate && navigator.vibrate(15); }catch(err){}
+  }, OV_HOLD_MS);
+});
+ovScroll.addEventListener('pointermove', (e)=>{
+  if(ovTouches.has(e.pointerId)) ovTouches.set(e.pointerId, {x:e.clientX, y:e.clientY});
+  if(ovPinch){
+    if(ovTouches.size < 2) return;
+    const [a, b] = [...ovTouches.values()];
+    const ratio = Math.hypot(a.x - b.x, a.y - b.y) / ovPinch.d0;
+    ovSetCols(ovPinch.cols0 / ratio, ovPinch.anchor); // 벌리면 크게(한 줄에 적게), 오므리면 작게(많이)
+    return;
+  }
+  if(!ovP || e.pointerId !== ovP.id) return;
+  ovP.x = e.clientX; ovP.y = e.clientY;
+  if(ovMode === 'place'){ if(e.buttons) ovShowIns(ovGapFromPoint(e.clientX, e.clientY)); return; }
+  if(ovDrag){ ovDragMove(e.clientX, e.clientY); return; }
+  if(!ovP.moved && Math.hypot(e.clientX - ovP.x0, e.clientY - ovP.y0) > OV_MOVE_SLOP){
+    ovP.moved = true;
+    if(ovP.armed && ovMode === 'select') ovStartDrag();
+    else { clearTimeout(ovP.timer); } // 그냥 스크롤
+  }
+});
+async function ovPointerUp(e){
+  if(ovTouches.has(e.pointerId)) ovTouches.delete(e.pointerId);
+  if(ovPinch){ if(ovTouches.size < 2) ovPinch = null; ovP = null; return; }
+  if(!ovP || e.pointerId !== ovP.id) return;
+  const st = ovP, drag = ovDrag;
+  ovEndPointer();
+  if(e.type === 'pointercancel'){ ovHideIns(); return; }
+  if(drag){
+    ovHideIns();
+    if(drag.gap !== null) await ovMoveTo(drag.gap);
+    return;
+  }
+  if(ovMode === 'place'){
+    ovHideIns();
+    if(st.moved) return; // 스크롤한 것
+    const g = ovGapFromPoint(e.clientX, e.clientY);
+    if(g) await ovPasteAt(g.gap);
+    return;
+  }
+  if(st.moved || st.long || !st.cell) return;
+  const idx = +st.cell.dataset.idx;
+  if(ovMode === 'view'){ closeOverview(idx); return; }
+  if(ovMode === 'select'){
+    const p = current.pages[idx];
+    if(ovSel.has(p)) ovSel.delete(p); else ovSel.add(p);
+    ovRefreshSelClasses();
+  }
+}
+ovScroll.addEventListener('pointerup', ovPointerUp);
+ovScroll.addEventListener('pointercancel', ovPointerUp);
+// 꾹 누른 뒤 끄는 동안·두 손가락 조절 중에는 브라우저 스크롤을 막아야 pointercancel로 끊기지 않음
+ovScroll.addEventListener('touchmove', (e)=>{ if(ovDrag || (ovP && ovP.armed) || ovPinch) e.preventDefault(); }, {passive:false});
+ovEl.addEventListener('contextmenu', (e)=> e.preventDefault());
+ovScroll.addEventListener('wheel', (e)=>{
+  if(!(e.ctrlKey || e.metaKey)) return; // PC: Ctrl+휠로 크기 조절
+  e.preventDefault();
+  ovSetCols(ovCols + (e.deltaY > 0 ? 1 : -1));
+}, {passive:false});
+ovScroll.addEventListener('scroll', ()=>{ if(ovDrag) ovDragMove(ovDrag.x, ovDrag.y); }, {passive:true});
+window.addEventListener('keydown', (e)=>{
+  if(!ovOpen) return;
+  e.stopImmediatePropagation(); // 모아보기 중에는 노트 단축키(숫자·Ctrl+B 등)가 뒤에서 동작하지 않게
+  if(e.key === 'Escape'){
+    e.preventDefault();
+    if(ovMode === 'place' || ovMode === 'confirm'){ ovClip = null; ovMode = ovSel.size ? 'select' : 'view'; ovHideIns(); ovRenderBar(); }
+    else if(ovMode === 'select') ovExitSelect();
+    else closeOverview();
+  }
+}, true);
+window.addEventListener('resize', ()=>{ if(ovOpen) ovVisible.forEach(cell=> ovQueueRender(cell)); });
+document.getElementById('btn-overview').addEventListener('click', openOverview);
 
 document.getElementById('btn-addpage').onclick = ()=>{
   if(current.type==='pdf'){ toast('PDF 노트는 페이지를 추가할 수 없어요.'); return; }
@@ -6954,7 +7542,7 @@ function updateThumbnailSoon(){
    - 파일 앞 2KB만 Range로 받아 확인하므로 데이터를 거의 안 씀(서버가 Range를 무시해도 동작은 함)
    - 캐시를 확실히 피하려고 일회용 ?nc= 를 붙여서 받음(브라우저가 그 주소를 캐시해도 다음엔 다른 번호라 무해)
    - GitHub Pages는 max-age=600이라 그냥 둬도 10분 뒤엔 새 파일을 받지만, 그걸 기다리지 않고 알려주기 위함 */
-const APP_BUILD = '2026-10-03b';
+const APP_BUILD = '2026-10-04a';
 const UPDATE_RECHECK_MS = 10 * 60 * 1000;
 let updateBannerShown = false, lastUpdateCheck = 0;
 function appBaseUrl(){ return location.pathname.replace(/[^/]*$/, ''); }
