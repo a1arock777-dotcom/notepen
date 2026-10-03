@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>NotePen</title>
-<!-- build: 2026-10-01a (펜 예측선 다듬기 — 짧게·빗나간 예측 버림) -->
+<!-- build: 2026-10-03a (도구 막대 아이콘에 S펜 올리면 설명 표시) -->
 <style>
   :root{
     --bg: #f4f3f1;
@@ -428,6 +428,14 @@
     box-shadow:var(--shadow); opacity:0; transition:opacity 0.12s; z-index:60;
   }
   .page-nav-btn[data-tip]:hover::after, .page-nav-btn[data-tip].tip-show::after{ opacity:1; }
+  /* 위쪽 도구 막대 아이콘에 S펜을 잠시 올려두면 뜨는 설명 (안드로이드는 title 말풍선을 안 띄워서 직접 그림) */
+  #np-pen-tip{
+    position:fixed; left:0; top:0; z-index:9000; pointer-events:none; max-width:min(320px, calc(100vw - 16px));
+    background:rgba(30,30,34,0.95); color:white; font-size:12.5px; font-weight:700; line-height:1.35;
+    padding:5px 10px; border-radius:8px; box-shadow:var(--shadow); white-space:normal; word-break:keep-all;
+    opacity:0; transition:opacity 0.12s; visibility:hidden;
+  }
+  #np-pen-tip.on{ opacity:1; visibility:visible; }
   #page-scrub{
     background:rgba(30,30,34,0.82); color:white; border-radius:999px; padding:8px 4px;
     display:flex; align-items:center; justify-content:center; min-width:34px; min-height:44px;
@@ -971,20 +979,20 @@
   <!-- EDITOR -->
   <div id="editor">
     <div class="topbar">
-      <button class="icon-btn" id="btn-back">←</button>
+      <button class="icon-btn" id="btn-back" title="서재(노트 목록)로 돌아가기">←</button>
       <button class="icon-btn" id="btn-shortcut-back" title="바로가기 아이콘으로 돌아가기" style="display:none;">↩️</button>
       <input id="title-input" value="제목 없는 노트">
       <span class="save-dot" id="save-dot"></span>
-      <span class="page-indicator" id="page-indicator">1/1</span>
-      <button class="icon-btn" id="btn-prev">‹</button>
-      <button class="icon-btn" id="btn-next">›</button>
+      <span class="page-indicator" id="page-indicator" title="지금 페이지 / 전체 페이지">1/1</span>
+      <button class="icon-btn" id="btn-prev" title="이전 페이지">‹</button>
+      <button class="icon-btn" id="btn-next" title="다음 페이지">›</button>
       <button class="icon-btn" id="btn-note-sync" title="이 노트 동기화 제외/포함">☁️</button>
-      <button class="icon-btn" id="btn-layers">▤</button>
+      <button class="icon-btn" id="btn-layers" title="레이어(층) 관리">▤</button>
       <button class="icon-btn" id="btn-fullscreen" title="전체화면">⛶</button>
     </div>
     <div class="toolbar">
       <div class="tool-group">
-        <button class="icon-btn" data-tool="pan" title="이동">✋</button>
+        <button class="icon-btn" data-tool="pan" title="손 — 화면 끌어서 이동">✋</button>
         <button class="icon-btn" data-tool="pen" title="펜">🖊️</button>
         <div id="eraser-wrap">
           <button class="icon-btn" data-tool="eraser" id="btn-eraser" title="지우개"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><g transform="rotate(-26 12 12)"><rect x="0.9" y="7.4" width="22.2" height="9.2" rx="2.8" fill="#efedfa"/><path d="M6.4 7.4h4.6v9.2H6.4z" fill="#fb6b78"/><path d="M11 7.4h4.6v9.2H11z" fill="#ffd166"/><path d="M15.6 7.4h2.2v9.2h-2.2z" fill="#fb6b78"/><rect x="0.9" y="7.4" width="22.2" height="9.2" rx="2.8" fill="none" stroke="#a9a5c9" stroke-width="1.1"/></g></svg></button>
@@ -1002,7 +1010,7 @@
           </div>
         </div>
         <button class="icon-btn" data-tool="highlight" title="형광펜"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><g transform="rotate(38 12 12)"><rect x="7.2" y="1.4" width="9.6" height="14.6" rx="2.6" fill="#ffd21e" stroke="#151515" stroke-width="1.6"/><rect x="9.7" y="4.4" width="4.6" height="8.6" rx="2" fill="#c9cdd2" stroke="#151515" stroke-width="1.2"/><path d="M7.2 16h9.6l-2.9 5.4h-3.8z" fill="#c2c6cb" stroke="#151515" stroke-width="1.6" stroke-linejoin="round"/></g></svg></button>
-        <button class="icon-btn" data-tool="mask" title="도형(가리기·마스킹)"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><rect x="2.4" y="2.4" width="11.2" height="11.2" rx="1.8"/><circle cx="16.2" cy="16.2" r="5.4"/></g></svg></button>
+        <button class="icon-btn" data-tool="mask" title="도형 — 가리기·마스킹"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><rect x="2.4" y="2.4" width="11.2" height="11.2" rx="1.8"/><circle cx="16.2" cy="16.2" r="5.4"/></g></svg></button>
         <button class="icon-btn" data-tool="lasso" title="올가미 선택 — 둘러 그으면 그 안의 필기·도형·이미지가 통째로 선택돼요">◌</button>
         <button class="icon-btn" id="btn-ink-paste" title="올가미로 복사한 것 붙여넣기 — 누른 뒤 놓을 자리를 탭하세요" style="display:none;"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><rect x="2.6" y="2.6" width="12" height="12" rx="2"/><rect x="9.4" y="9.4" width="12" height="12" rx="2" fill="var(--surface)"/></g><path d="M15.4 13v5M12.9 15.5h5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button>
       </div>
@@ -1041,8 +1049,8 @@
         <input type="number" class="size-value" id="highlight-opacity-value" min="10" max="90" value="35">
       </div>
       <div class="divider"></div>
-      <input type="range" id="size-range" min="1" max="20" value="3">
-      <input type="number" class="size-value" id="size-value" min="1" max="20" value="3">
+      <input type="range" id="size-range" min="1" max="20" value="3" title="굵기 조절">
+      <input type="number" class="size-value" id="size-value" min="1" max="20" value="3" title="굵기 (숫자로 입력)">
       <div id="size-fav-wrap">
         <button class="icon-btn" id="btn-size-fav" title="굵기 즐겨찾기">☆</button>
         <div id="size-fav-popover">
@@ -1051,14 +1059,14 @@
         </div>
       </div>
       <div class="divider"></div>
-      <button class="icon-btn" id="btn-undo">↺</button>
-      <button class="icon-btn" id="btn-redo">↻</button>
+      <button class="icon-btn" id="btn-undo" title="실행 취소(되돌리기)">↺</button>
+      <button class="icon-btn" id="btn-redo" title="다시 실행">↻</button>
       <div class="divider"></div>
-      <button class="icon-btn" id="btn-zoom-out">－</button>
-      <button class="icon-btn" id="btn-zoom-in">＋</button>
+      <button class="icon-btn" id="btn-zoom-out" title="축소">－</button>
+      <button class="icon-btn" id="btn-zoom-in" title="확대">＋</button>
       <div class="divider"></div>
       <button class="icon-btn" id="btn-addpage" title="페이지 추가">＋📄</button>
-      <button class="icon-btn" id="btn-image" title="이미지 추가">🖼️</button>
+      <button class="icon-btn" id="btn-image" title="이미지 넣기">🖼️</button>
       <button class="icon-btn" id="btn-add-shortcut" title="새 노트 바로가기 아이콘 추가"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><defs><mask id="npchain"><rect width="24" height="24" fill="#fff"/><g transform="rotate(-45 12 12)"><rect x="8.9" y="5.4" width="4" height="13.2" fill="#000"/></g></mask></defs><g transform="rotate(-45 12 12)" fill="none" stroke="currentColor" stroke-width="3"><rect x="1.2" y="7.4" width="12" height="9.2" rx="4.6" mask="url(#npchain)"/><rect x="10.8" y="7.4" width="12" height="9.2" rx="4.6"/></g></svg></button>
     </div>
     <input type="file" accept="image/*" class="hidden-input" id="image-input">
@@ -6493,6 +6501,46 @@ document.querySelectorAll('.page-nav-btn[data-tip]').forEach(btn=>{
   btn.addEventListener('pointerleave', hide);
   btn.addEventListener('pointerdown', hide); // 눌러서 이동한 뒤 이름표가 남아있지 않게
 });
+// 위쪽 제목줄·도구 막대 아이콘: S펜을 잠시(0.4초) 올려두면 설명(title)을 띄움. 누르면 바로 사라짐.
+// 손가락 터치는 호버가 없어 해당 없음, 마우스는 브라우저 기본 말풍선(title)이 이미 떠서 펜만 처리.
+const PEN_TIP_DELAY_MS = 400;
+const penTipEl = document.createElement('div'); penTipEl.id = 'np-pen-tip'; document.body.appendChild(penTipEl);
+let penTipTarget = null, penTipTimer = null;
+function penTipTargetOf(node){
+  const el = node && node.closest ? node.closest('#editor .topbar [title], #editor .toolbar [title], #page-nav [title]') : null;
+  if(!el || el.matches('.page-nav-btn[data-tip]')) return null; // 오른쪽 목차·이면지 버튼은 기존 이름표 사용
+  if(el.offsetParent === null) return null;
+  return el;
+}
+function hidePenTip(){ clearTimeout(penTipTimer); penTipTimer = null; penTipTarget = null; penTipEl.classList.remove('on'); }
+function showPenTip(el){
+  const text = el.getAttribute('title'); if(!text){ hidePenTip(); return; }
+  penTipEl.textContent = text; penTipEl.classList.add('on');
+  const r = el.getBoundingClientRect(), t = penTipEl.getBoundingClientRect(), m = 8;
+  let x, y;
+  if(el.closest('#page-nav')){ x = r.left - t.width - m; y = r.top + r.height/2 - t.height/2; }
+  else {
+    x = r.left + r.width/2 - t.width/2; y = r.bottom + m;
+    if(y + t.height > innerHeight - 4) y = r.top - t.height - m;
+  }
+  x = Math.max(4, Math.min(x, innerWidth - t.width - 4)); y = Math.max(4, Math.min(y, innerHeight - t.height - 4));
+  penTipEl.style.transform = `translate(${Math.round(x)}px, ${Math.round(y)}px)`;
+}
+document.addEventListener('pointermove', (e)=>{
+  if(e.pointerType !== 'pen') return;
+  if(e.buttons){ if(penTipTarget) hidePenTip(); return; }
+  const el = penTipTargetOf(e.target);
+  if(el === penTipTarget) return;
+  const warm = penTipEl.classList.contains('on'); // 이미 하나 떠 있으면 옆 아이콘으로 옮길 때 바로 바꿔 보여줌
+  hidePenTip();
+  if(!el) return;
+  penTipTarget = el;
+  if(warm) showPenTip(el);
+  else penTipTimer = setTimeout(()=>{ if(penTipTarget === el) showPenTip(el); }, PEN_TIP_DELAY_MS);
+}, {passive:true});
+document.addEventListener('pointerdown', ()=>{ if(penTipTarget) hidePenTip(); }, true);
+document.addEventListener('pointerout', (e)=>{ if(e.pointerType === 'pen' && !e.relatedTarget) hidePenTip(); }, true);
+window.addEventListener('scroll', ()=>{ if(penTipTarget) hidePenTip(); }, true);
 document.getElementById('toc-search').addEventListener('input', renderToc);
 document.getElementById('btn-toc').addEventListener('click', openTocPanel);
 document.getElementById('toc-add-btn').addEventListener('click', addCurrentPageToToc);
@@ -6813,7 +6861,7 @@ function updateThumbnailSoon(){
    - 파일 앞 2KB만 Range로 받아 확인하므로 데이터를 거의 안 씀(서버가 Range를 무시해도 동작은 함)
    - 캐시를 확실히 피하려고 일회용 ?nc= 를 붙여서 받음(브라우저가 그 주소를 캐시해도 다음엔 다른 번호라 무해)
    - GitHub Pages는 max-age=600이라 그냥 둬도 10분 뒤엔 새 파일을 받지만, 그걸 기다리지 않고 알려주기 위함 */
-const APP_BUILD = '2026-10-01a';
+const APP_BUILD = '2026-10-03a';
 const UPDATE_RECHECK_MS = 10 * 60 * 1000;
 let updateBannerShown = false, lastUpdateCheck = 0;
 function appBaseUrl(){ return location.pathname.replace(/[^/]*$/, ''); }
