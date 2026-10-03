@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>NotePen</title>
-<!-- build: 2026-10-03a (도구 막대 아이콘에 S펜 올리면 설명 표시) -->
+<!-- build: 2026-10-03b (이면지 새 페이지 미리 붙이기 · 색 3초 꾹 = 쉬면 돌아오는 기본색) -->
 <style>
   :root{
     --bg: #f4f3f1;
@@ -354,6 +354,21 @@
     width:20px; height:20px; border-radius:50%; border:2px solid var(--border); flex:0 0 auto; cursor:pointer;
   }
   .swatch.sel{ border-color:var(--accent); transform:scale(1.12); }
+  /* 이 노트의 '쉬면 돌아오는 기본색' 표시: 색 칸 가운데 흰 점 */
+  #color-group .swatch{ position:relative; }
+  #color-group .swatch.np-idle-default::after{
+    content:''; position:absolute; left:50%; top:50%; width:6px; height:6px; margin:-3px 0 0 -3px;
+    border-radius:50%; background:#fff; box-shadow:0 0 0 1px rgba(0,0,0,0.35); pointer-events:none;
+  }
+  /* 색 칸을 꾹 누르는 동안(3초) 바깥에 차오르는 링 */
+  #color-group .swatch.np-hold::before{
+    content:''; position:absolute; inset:-6px; border-radius:50%; pointer-events:none;
+    background:conic-gradient(var(--accent) calc(var(--np-hold,0) * 1turn), transparent 0);
+    -webkit-mask:radial-gradient(circle, transparent 58%, #000 60%); mask:radial-gradient(circle, transparent 58%, #000 60%);
+    animation:np-hold-fill 3s linear forwards;
+  }
+  @property --np-hold{ syntax:'<number>'; inherits:false; initial-value:0; }
+  @keyframes np-hold-fill{ from{ --np-hold:0; } to{ --np-hold:1; } }
   #size-range{ width:70px; flex:0 0 auto; }
   .size-value{
     font-size:12px; font-weight:700; color:var(--text); width:34px; text-align:center; flex:0 0 auto;
@@ -1301,6 +1316,7 @@ async function syncPushNotebook(nb){
       // (IndexedDB put()은 레코드를 통째로 갈아끼우기 때문). 2026-09-14 목차가 이렇게 전부 사라졌음.
       toc: Array.isArray(nb.toc) ? nb.toc : [],
       penDefault: nb.penDefault || null,
+      idleColor: nb.idleColor || null,
       linkedFrom: nb.linkedFrom || null
     };
     if(JSON.stringify(docData).length > 900000){
@@ -1326,6 +1342,8 @@ function mergeRemoteNotebook(d, local, pdfBuffer){
     pages: JSON.parse(d.pagesJson),
     toc: Array.isArray(d.toc) ? d.toc : (Array.isArray(keep.toc) ? keep.toc : []),
     penDefault: d.penDefault || keep.penDefault || null,
+    // 해제(null)도 다른 기기로 전해지도록, 클라우드 문서에 필드가 있으면 그 값을 그대로 씀
+    idleColor: ('idleColor' in d) ? (d.idleColor || null) : (keep.idleColor || null),
     linkedFrom: d.linkedFrom || keep.linkedFrom || null
   });
 }
@@ -2680,8 +2698,29 @@ const wrapEl = document.getElementById('canvas-wrap');
 let scrollRaf = null;
 wrapEl.addEventListener('scroll', ()=>{
   if(scrollRaf) return;
-  scrollRaf = requestAnimationFrame(()=>{ scrollRaf = null; updatePageIndicatorFromScroll(); });
+  scrollRaf = requestAnimationFrame(()=>{ scrollRaf = null; updatePageIndicatorFromScroll(); maybeScratchPrefill(); });
 });
+/* 이면지 노트: 스크롤해서 마지막 페이지가 화면에 들어오면 다음 빈 페이지를 미리 한 장 붙여 둔다.
+   (예전엔 바닥에서 70px 더 끌어야 생겨서 늦고, 튕겨 내리면 아예 안 생겼음)
+   마지막 페이지에 뭔가 써 있을 때만 붙이므로 빈 페이지가 끝없이 쌓이지 않음. */
+function pageHasContent(p){
+  if(!p) return false;
+  if((p.layers||[]).some(l=> (l.strokes||[]).length || (l.masks||[]).length)) return true;
+  return ['texts','images','shortcuts'].some(k=> Array.isArray(p[k]) && p[k].length);
+}
+function maybeScratchPrefill(){
+  if(!current || current.type === 'pdf' || current.id !== getScratchId()) return;
+  const last = current.pages.length - 1;
+  if(!pageHasContent(current.pages[last])) return;
+  const block = stackEl.querySelector(`.page-block[data-page-idx="${last}"]`);
+  if(!block) return;
+  const wr = wrapEl.getBoundingClientRect(), br = block.getBoundingClientRect();
+  if(br.top > wr.bottom + wr.height * 0.5) return; // 마지막 페이지가 아직 멀리 아래에 있음
+  current.pages.push(makeBlankPage(current.bgColor, current.bgLined));
+  appendPageBlock(current.pages.length - 1);
+  updatePageIndicatorDisplay();
+  scheduleSave();
+}
 
 async function openNotebook(id, targetPage, targetShortcutId){
   const all = await dbGetAll();
@@ -2707,6 +2746,7 @@ async function openNotebook(id, targetPage, targetShortcutId){
   document.getElementById('title-input').value = current.title;
   updateNoteSyncBtn();
   applyNotePenDefault(); // 이 노트에 정해둔 기본 펜(색·굵기)이 있으면 그걸로 시작
+  updateIdleColorMark(); armIdleColorRevert();
   // ---- 동기화된 PDF 노트의 원본 파일 자가 복구 ----
   // (A) 다른 기기에서 받아온 노트인데 PDF 원본이 아직 이 기기에 없으면 지금 내려받음
   if(current.type === 'pdf' && !current.pdfBuffer && current.pdfStoragePath && fbStorage && fbUser){
@@ -6078,6 +6118,59 @@ document.querySelectorAll('#color-group .swatch').forEach(sw=>{
   });
 });
 
+/* ---------- 쉬면 돌아오는 기본색 (노트별, nb.idleColor) ----------
+   색 칸을 3초 꾹 누르면 그 색이 이 노트의 '기본색'이 됨(같은 색을 다시 3초 누르면 해제).
+   노트가 열려 있는 동안 5초간 아무 조작이 없으면 펜 색이 그 기본색으로 저절로 돌아옴.
+   ※ 펜 버튼 꾹 누르기의 '이 노트의 기본 펜'(nb.penDefault)은 노트를 열 때 적용되는 별개 설정. */
+const IDLE_COLOR_MS = 5000, IDLE_COLOR_HOLD_MS = 3000;
+let idleColorTimer = null;
+function updateIdleColorMark(){
+  const c = current && current.idleColor;
+  document.querySelectorAll('#color-group .swatch').forEach(s=> s.classList.toggle('np-idle-default', !!c && s.dataset.color === c));
+}
+function armIdleColorRevert(){
+  clearTimeout(idleColorTimer); idleColorTimer = null;
+  if(!(current && current.idleColor)) return;
+  idleColorTimer = setTimeout(revertIdleColor, IDLE_COLOR_MS);
+}
+function revertIdleColor(){
+  idleColorTimer = null;
+  const c = current && current.idleColor;
+  if(!c || !inNoteView()) return;
+  if(drawing){ armIdleColorRevert(); return; } // 5초 넘게 긋는 중이면 뗀 뒤로 미룸
+  if(color === c) return;
+  setPenColor(c);
+  toast('기본색(' + colorNameOf(c) + ')으로 돌아왔어요');
+}
+['pointerdown','pointerup','keydown','wheel'].forEach(ev=> document.addEventListener(ev, armIdleColorRevert, {capture:true, passive:true}));
+wrapEl.addEventListener('scroll', armIdleColorRevert, {passive:true});
+document.querySelectorAll('#color-group .swatch').forEach(sw=>{
+  let t = null, start = null;
+  const cancel = ()=>{ clearTimeout(t); t = null; sw.classList.remove('np-hold'); };
+  sw.addEventListener('pointerdown', (e)=>{
+    cancel(); start = {x:e.clientX, y:e.clientY};
+    void sw.offsetWidth; sw.classList.add('np-hold'); // 링 애니메이션을 처음부터 다시
+    t = setTimeout(async ()=>{
+      t = null; sw.classList.remove('np-hold');
+      if(!current) return;
+      const c = sw.dataset.color;
+      if(current.idleColor === c){
+        current.idleColor = null;
+        toast('이 노트의 기본색을 해제했어요');
+      } else {
+        current.idleColor = c;
+        toast(colorNameOf(c) + '을(를) 이 노트의 기본색으로 정했어요 · 5초 쉬면 이 색으로 돌아와요 (다시 3초 누르면 해제)');
+      }
+      setPenColor(c);
+      updateIdleColorMark(); armIdleColorRevert();
+      await persist(true);
+    }, IDLE_COLOR_HOLD_MS);
+  });
+  sw.addEventListener('pointermove', (e)=>{ if(t && start && Math.hypot(e.clientX-start.x, e.clientY-start.y) > 12) cancel(); });
+  ['pointerup','pointercancel','pointerleave'].forEach(ev=> sw.addEventListener(ev, cancel));
+  sw.addEventListener('contextmenu', (e)=> e.preventDefault());
+});
+
 /* ---------- 노트별 기본 펜(색·굵기) ----------
    노트를 열 때마다 그 노트에 정해둔 색·굵기로 시작함(필기 중에 바꾸는 건 자유, 다시 열면 기본값으로 돌아옴).
    노트의 성격에 딸린 설정이라 노트 데이터(nb.penDefault)에 저장함 -> 다른 기기에서도 동기화됨. */
@@ -6861,7 +6954,7 @@ function updateThumbnailSoon(){
    - 파일 앞 2KB만 Range로 받아 확인하므로 데이터를 거의 안 씀(서버가 Range를 무시해도 동작은 함)
    - 캐시를 확실히 피하려고 일회용 ?nc= 를 붙여서 받음(브라우저가 그 주소를 캐시해도 다음엔 다른 번호라 무해)
    - GitHub Pages는 max-age=600이라 그냥 둬도 10분 뒤엔 새 파일을 받지만, 그걸 기다리지 않고 알려주기 위함 */
-const APP_BUILD = '2026-10-03a';
+const APP_BUILD = '2026-10-03b';
 const UPDATE_RECHECK_MS = 10 * 60 * 1000;
 let updateBannerShown = false, lastUpdateCheck = 0;
 function appBaseUrl(){ return location.pathname.replace(/[^/]*$/, ''); }
