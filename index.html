@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>NotePen</title>
-<!-- build: 2026-10-04a (페이지 모아보기 — 순서 바꾸기·복사·삭제) -->
+<!-- build: 2026-10-11a (전체화면 고정 — 버튼 길게 누르기) -->
 <style>
   :root{
     --bg: #f4f3f1;
@@ -451,6 +451,17 @@
     opacity:0; transition:opacity 0.12s; visibility:hidden;
   }
   #np-pen-tip.on{ opacity:1; visibility:visible; }
+  /* 전체화면 고정: 누르는 동안 링, 고정되면 자물쇠 표시 */
+  #btn-fullscreen{ position:relative; }
+  #btn-fullscreen.np-fs-locked::after{ content:'🔒'; position:absolute; right:-3px; bottom:-3px; font-size:11px; line-height:1; pointer-events:none; }
+  #btn-fullscreen.np-fs-hold::before{
+    content:''; position:absolute; inset:-3px; border-radius:10px; pointer-events:none;
+    background:conic-gradient(var(--accent) calc(var(--np-fsh,0) * 1turn), transparent 0);
+    -webkit-mask:radial-gradient(circle, transparent 62%, #000 64%); mask:radial-gradient(circle, transparent 62%, #000 64%);
+    animation:np-fs-fill .6s linear forwards;
+  }
+  @property --np-fsh{ syntax:'<number>'; inherits:false; initial-value:0; }
+  @keyframes np-fs-fill{ from{ --np-fsh:0; } to{ --np-fsh:1; } }
   /* ---------- 페이지 모아보기 ---------- */
   #page-overview{ position:fixed; inset:0; z-index:90; background:var(--bg); display:none; flex-direction:column; }
   #page-overview.open{ display:flex; }
@@ -2409,7 +2420,7 @@ async function zipBytes(zip, e){
   return new Uint8Array(await zip.file.slice(start, start + e.csize).arrayBuffer());
 }
 
-const BACKUP_SETTING_KEYS = ['notepen_inkpred','notepen_folders','notepen_note_order','notepen_note_pins','notepen_note_favs','notepen_scratch_note','notepen_eraser_mode','notepen_hotkeys','notepen_text_style','notepen_penhold'];
+const BACKUP_SETTING_KEYS = ['notepen_inkpred','notepen_fs_lock','notepen_overview_cols','notepen_folders','notepen_note_order','notepen_note_pins','notepen_note_favs','notepen_scratch_note','notepen_eraser_mode','notepen_hotkeys','notepen_text_style','notepen_penhold'];
 
 async function exportBackup(){
   const btn = document.getElementById('backup-export');
@@ -7224,7 +7235,7 @@ ovScroll.addEventListener('pointerdown', (e)=>{
   }
   if(ovP || ovPinch) return;
   const cell = e.target.closest('.ov-cell');
-  ovP = { id: e.pointerId, x: e.clientX, y: e.clientY, x0: e.clientX, y0: e.clientY, cell, moved: false, long: false, armed: false, timer: null };
+  ovP = { id: e.pointerId, x: e.clientX, y: e.clientY, x0: e.clientX, y0: e.clientY, cell, moved: false, long: false, armed: false, timer: null, t0: performance.now() };
   if(ovMode === 'place'){ ovShowIns(ovGapFromPoint(e.clientX, e.clientY)); return; }
   if(!cell || ovMode === 'confirm') return;
   ovP.timer = setTimeout(()=>{
@@ -7278,6 +7289,13 @@ async function ovPointerUp(e){
   }
   if(st.moved || st.long || !st.cell) return;
   const idx = +st.cell.dataset.idx;
+  // 썸네일을 그리느라 바빠서 꾹 누르기 타이머가 손을 뗀 뒤로 밀린 경우: 누른 시간으로 판정
+  if(performance.now() - st.t0 >= OV_HOLD_MS && (ovMode === 'view' || ovMode === 'select')){
+    const p = current.pages[idx];
+    if(ovMode === 'view') ovMode = 'select';
+    ovSel.add(p); ovRefreshSelClasses();
+    return;
+  }
   if(ovMode === 'view'){ closeOverview(idx); return; }
   if(ovMode === 'select'){
     const p = current.pages[idx];
@@ -7402,10 +7420,55 @@ const layersPanel = document.getElementById('layers-panel');
 document.getElementById('btn-layers').onclick = ()=> layersPanel.classList.toggle('open');
 
 const btnFullscreen = document.getElementById('btn-fullscreen');
+/* 전체화면 고정 (2026-10-11): 버튼을 0.6초 누르면 고정/해제. 고정 중엔 짧게 눌러도 안 꺼지고,
+   브라우저(뒤로가기 제스처 등)가 전체화면을 풀면 다음 탭/펜 뗌/키 입력 때 다시 들어감
+   (브라우저는 사용자 동작 없이 전체화면을 켜지 못하게 막으므로 그 순간을 기다림). 기기별 notepen_fs_lock. */
+const FS_LOCK_KEY = 'notepen_fs_lock', FS_HOLD_MS = 600;
+let fsLocked = false;
+try{ fsLocked = localStorage.getItem(FS_LOCK_KEY) === '1'; }catch(e){}
 function updateFsIcon(){
-  btnFullscreen.textContent = document.fullscreenElement ? '⤢' : '⛶';
+  const on = !!document.fullscreenElement;
+  btnFullscreen.textContent = on ? '⤢' : '⛶';
+  btnFullscreen.classList.toggle('np-fs-locked', fsLocked);
+  btnFullscreen.title = fsLocked ? '전체화면 고정됨 — 길게 누르면 해제'
+    : (on ? '전체화면 끄기 (길게 누르면 고정)' : '전체화면 (길게 누르면 켜고 고정)');
 }
+async function enterFullscreen(){
+  if(document.fullscreenElement) return true;
+  try{ await document.documentElement.requestFullscreen(); return true; }catch(err){ return false; }
+}
+function setFsLock(v){
+  fsLocked = !!v;
+  try{ localStorage.setItem(FS_LOCK_KEY, fsLocked ? '1' : '0'); }catch(e){}
+  updateFsIcon();
+}
+let fsHoldTimer = null, fsHoldFired = false, fsHoldStart = null;
+function fsHoldCancel(){ clearTimeout(fsHoldTimer); fsHoldTimer = null; btnFullscreen.classList.remove('np-fs-hold'); }
+btnFullscreen.addEventListener('pointerdown', (e)=>{
+  fsHoldFired = false; fsHoldStart = {x:e.clientX, y:e.clientY};
+  fsHoldCancel();
+  void btnFullscreen.offsetWidth; btnFullscreen.classList.add('np-fs-hold');
+  fsHoldTimer = setTimeout(()=>{ fsHoldTimer = null; fsHoldFired = true; btnFullscreen.classList.remove('np-fs-hold'); try{ navigator.vibrate && navigator.vibrate(15); }catch(err){} }, FS_HOLD_MS);
+});
+btnFullscreen.addEventListener('pointermove', (e)=>{ if(fsHoldTimer && fsHoldStart && Math.hypot(e.clientX-fsHoldStart.x, e.clientY-fsHoldStart.y) > 12) fsHoldCancel(); });
+['pointercancel','pointerleave'].forEach(ev=> btnFullscreen.addEventListener(ev, ()=>{ fsHoldCancel(); }));
+btnFullscreen.addEventListener('pointerup', async ()=>{
+  fsHoldCancel();
+  if(!fsHoldFired) return;
+  // 길게 누름: 고정 토글. 손을 떼는 이 순간은 '사용자 동작'이라 전체화면을 켤 수 있음
+  if(fsLocked){ setFsLock(false); toast('전체화면 고정을 풀었어요 — 이제 짧게 눌러 끌 수 있어요'); return; }
+  setFsLock(true);
+  const ok = await enterFullscreen();
+  toast(ok ? '전체화면을 고정했어요 🔒 — 다시 길게 누르면 풀려요' : '전체화면 고정 — 이 브라우저에서는 전체화면이 지원되지 않아요');
+});
+btnFullscreen.addEventListener('contextmenu', (e)=> e.preventDefault());
 btnFullscreen.onclick = async ()=>{
+  if(fsHoldFired){ fsHoldFired = false; return; } // 길게 누른 뒤 따라오는 click은 무시
+  if(fsLocked){
+    if(!document.fullscreenElement) await enterFullscreen();
+    toast('전체화면 고정됨 🔒 — 길게 누르면 해제');
+    return;
+  }
   try{
     if(!document.fullscreenElement){
       await document.documentElement.requestFullscreen();
@@ -7416,7 +7479,15 @@ btnFullscreen.onclick = async ()=>{
     toast('이 브라우저에서는 전체화면이 지원되지 않아요.');
   }
 };
+// 고정 중인데 전체화면이 풀려 있으면, 다음 사용자 동작(탭·펜 뗌·키 입력) 때 다시 들어감
+function fsRelockOnGesture(e){
+  if(!fsLocked || document.fullscreenElement) return;
+  if(e && e.target && e.target.closest && e.target.closest('#btn-fullscreen')) return; // 버튼 자체는 위에서 처리
+  enterFullscreen();
+}
+['pointerup','keydown'].forEach(ev=> document.addEventListener(ev, fsRelockOnGesture, true));
 document.addEventListener('fullscreenchange', updateFsIcon);
+updateFsIcon();
 function refreshLayersPanel(){
   const list = document.getElementById('layers-list');
   list.innerHTML = '';
@@ -7542,7 +7613,7 @@ function updateThumbnailSoon(){
    - 파일 앞 2KB만 Range로 받아 확인하므로 데이터를 거의 안 씀(서버가 Range를 무시해도 동작은 함)
    - 캐시를 확실히 피하려고 일회용 ?nc= 를 붙여서 받음(브라우저가 그 주소를 캐시해도 다음엔 다른 번호라 무해)
    - GitHub Pages는 max-age=600이라 그냥 둬도 10분 뒤엔 새 파일을 받지만, 그걸 기다리지 않고 알려주기 위함 */
-const APP_BUILD = '2026-10-04a';
+const APP_BUILD = '2026-10-11a';
 const UPDATE_RECHECK_MS = 10 * 60 * 1000;
 let updateBannerShown = false, lastUpdateCheck = 0;
 function appBaseUrl(){ return location.pathname.replace(/[^/]*$/, ''); }
