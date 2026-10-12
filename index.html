@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>NotePen</title>
-<!-- build: 2026-10-11a (전체화면 고정 — 버튼 길게 누르기) -->
+<!-- build: 2026-10-12a (PDF 노트 가볍게 — 원본 따로 저장·바탕 해상도 조절) -->
 <style>
   :root{
     --bg: #f4f3f1;
@@ -1213,30 +1213,94 @@ const CANVAS_Z_BASE = 20;
 const INK_DESYNC = /(?:^|[?&])lab=desync(?:&|$)/.test(location.search);
 
 /* ================= IndexedDB helpers ================= */
-const DB_NAME = 'notepen_db', DB_VERSION = 1, STORE = 'notebooks';
+const DB_NAME = 'notepen_db', DB_VERSION = 2, STORE = 'notebooks';
+/* PDF 원본은 2026-10-12부터 별도 저장소(pdfs)에 한 번만 저장한다.
+   예전엔 자동 저장 때마다 노트 레코드에 PDF 원본(수십 MB)까지 통째로 다시 써서 2초 넘게 멈췄음(15MB 슬라이드 PDF 실측).
+   노트 레코드에는 pdfInStore:true 표시만 남고, 원본이 필요할 때 ensurePdfBuffer()로 꺼내 씀.
+   옛 레코드(노트 안에 pdfBuffer가 든 것)도 그대로 읽히고, 다음 저장 때·시작 후 백그라운드에서 옮겨짐. */
+const PDF_STORE = 'pdfs';
+const pdfWritten = new Map(); // 노트 id → 이번 실행에서 pdfs에 이미 써 둔 ArrayBuffer(같은 것이면 다시 안 씀)
+let dbPromise = null; // 연결을 한 번 열어 재사용(예전엔 저장할 때마다 새로 열었음)
 function openDB(){
-  return new Promise((resolve, reject)=>{
+  if(dbPromise) return dbPromise;
+  dbPromise = new Promise((resolve, reject)=>{
     const req = indexedDB.open(DB_NAME, DB_VERSION);
     req.onupgradeneeded = ()=>{
       const db = req.result;
       if(!db.objectStoreNames.contains(STORE)){
         db.createObjectStore(STORE, {keyPath:'id'});
       }
+      if(!db.objectStoreNames.contains(PDF_STORE)){
+        db.createObjectStore(PDF_STORE, {keyPath:'id'});
+      }
     };
-    req.onsuccess = ()=>resolve(req.result);
-    req.onerror = ()=>reject(req.error);
+    // 옛 버전 NotePen이 다른 탭에 열려 있으면 저장소 업그레이드가 그 탭을 닫을 때까지 기다림
+    req.onblocked = ()=>{ try{ toast('NotePen이 다른 탭에도 열려 있어요 — 그 탭을 닫거나 새로고침해 주세요'); }catch(e){} };
+    req.onsuccess = ()=>{
+      const db = req.result;
+      db.onversionchange = ()=>{ db.close(); dbPromise = null; }; // 나중 버전이 업그레이드하려 하면 비켜줌
+      db.onclose = ()=>{ dbPromise = null; };
+      resolve(db);
+    };
+    req.onerror = ()=>{ dbPromise = null; reject(req.error); };
   });
+  return dbPromise;
 }
+async function dbGetPdf(id){
+  try{
+    const db = await openDB();
+    return await new Promise((resolve,reject)=>{
+      const req = db.transaction(PDF_STORE,'readonly').objectStore(PDF_STORE).get(id);
+      req.onsuccess = ()=>resolve(req.result ? req.result.buf : null);
+      req.onerror = ()=>reject(req.error);
+    });
+  }catch(e){ return null; }
+}
+// 노트에 PDF 원본이 메모리에 없으면 pdfs 저장소에서 꺼내 붙임
+async function ensurePdfBuffer(nb){
+  if(!nb || nb.pdfBuffer || !nb.pdfInStore) return nb && nb.pdfBuffer || null;
+  const buf = await dbGetPdf(nb.id);
+  if(buf){ nb.pdfBuffer = buf; pdfWritten.set(nb.id, buf); }
+  return buf;
+}
+// 옛 레코드(노트 안에 PDF 원본이 든 것)를 하나씩 pdfs로 옮김 — 시작 후 한가할 때 한 번
+async function migratePdfBuffers(){
+  try{
+    const db = await openDB();
+    const keys = await new Promise((res,rej)=>{ const q = db.transaction(STORE,'readonly').objectStore(STORE).getAllKeys(); q.onsuccess=()=>res(q.result||[]); q.onerror=()=>rej(q.error); });
+    for(const id of keys){
+      if(current && current.id === id) continue; // 열려 있는 노트는 다음 저장 때 옮겨짐
+      const rec = await new Promise((res,rej)=>{ const q = db.transaction(STORE,'readonly').objectStore(STORE).get(id); q.onsuccess=()=>res(q.result); q.onerror=()=>rej(q.error); });
+      if(!rec || !rec.pdfBuffer) continue;
+      await new Promise((res,rej)=>{
+        const tx = db.transaction([STORE, PDF_STORE],'readwrite');
+        const r2 = Object.assign({}, rec); delete r2.pdfBuffer; r2.pdfInStore = true;
+        tx.objectStore(PDF_STORE).put({id, buf: rec.pdfBuffer});
+        tx.objectStore(STORE).put(r2);
+        tx.oncomplete = res; tx.onerror = ()=>rej(tx.error);
+      });
+      await new Promise(r=> setTimeout(r, 300)); // 필기에 방해되지 않게 한 개씩 쉬어 가며
+    }
+  }catch(e){ console.error('PDF 원본 옮기기 실패', e); }
+}
+setTimeout(migratePdfBuffers, 8000);
 async function dbPut(nb, opts){
   opts = opts || {};
   try{
     const db = await openDB();
+    const buf = nb.pdfBuffer || null;
+    const needPdf = !!(buf && pdfWritten.get(nb.id) !== buf); // PDF 원본은 바뀌었을 때(처음)만 씀
+    const rec = Object.assign({}, nb);
+    delete rec.pdfBuffer;
+    if(buf || nb.pdfInStore) rec.pdfInStore = true;
     const ok = await new Promise((resolve,reject)=>{
-      const tx = db.transaction(STORE,'readwrite');
-      tx.objectStore(STORE).put(nb);
-      tx.oncomplete = ()=>resolve(true);
+      const tx = db.transaction(needPdf ? [STORE, PDF_STORE] : [STORE],'readwrite');
+      tx.objectStore(STORE).put(rec);
+      if(needPdf) tx.objectStore(PDF_STORE).put({id: nb.id, buf});
+      tx.oncomplete = ()=>{ if(needPdf) pdfWritten.set(nb.id, buf); resolve(true); };
       tx.onerror = ()=>reject(tx.error);
     });
+    if(buf) nb.pdfInStore = true;
     if(!opts.skipSync) syncPushNotebook(nb); // 클라우드 동기화가 설정/로그인 안 되어 있으면 내부에서 그냥 조용히 무시됨
     return ok;
   }catch(e){ console.error('dbPut failed', e); return false; }
@@ -1268,9 +1332,10 @@ async function dbDelete(id, opts){
   try{
     const db = await openDB();
     const ok = await new Promise((resolve,reject)=>{
-      const tx = db.transaction(STORE,'readwrite');
+      const tx = db.transaction([STORE, PDF_STORE],'readwrite');
       tx.objectStore(STORE).delete(id);
-      tx.oncomplete = ()=>resolve(true);
+      tx.objectStore(PDF_STORE).delete(id);
+      tx.oncomplete = ()=>{ pdfWritten.delete(id); resolve(true); };
       tx.onerror = ()=>reject(tx.error);
     });
     if(!opts.skipSync) syncDeleteNotebook(id);
@@ -1477,7 +1542,8 @@ function syncStartListening(){
         }
         if(local && local.updatedAt >= d.updatedAt) continue; // 이 기기가 더 최신이면(방금 내가 쓴 것) 무시
         let pdfBuffer = null;
-        if(d.pdfStoragePath){
+        // PDF 원본은 노트마다 바뀌지 않으므로, 이 기기에 이미 있으면 다시 받지 않음(필기가 바뀔 때마다 수십 MB를 받던 것)
+        if(d.pdfStoragePath && !(local && (local.pdfBuffer || local.pdfInStore))){
           try{
             const url = await fbStorage.ref(d.pdfStoragePath).getDownloadURL();
             const resp = await fetch(url);
@@ -2436,9 +2502,9 @@ async function exportBackup(){
       n++;
       prog.textContent = '노트 담는 중… ' + n + '/' + all.length;
       await new Promise(r=> setTimeout(r, 0)); // 화면이 멈추지 않게 한 박자 쉼
-      const pdf = nb.pdfBuffer || null;
+      const pdf = nb.pdfBuffer || (nb.pdfInStore ? await dbGetPdf(nb.id) : null);
       const meta = Object.assign({}, nb);
-      delete meta.pdfBuffer;
+      delete meta.pdfBuffer; delete meta.pdfInStore;
       entries.push({ name:'notes/' + nb.id + '.json', data: enc.encode(JSON.stringify(meta)) });
       if(pdf) entries.push({ name:'pdfs/' + nb.id + '.pdf', data: (pdf instanceof Uint8Array ? pdf : new Uint8Array(pdf)) });
       index.push({ id: nb.id, title: nb.title, type: nb.type, pages: (nb.pages||[]).length, hasPdf: !!pdf, updatedAt: nb.updatedAt });
@@ -2497,6 +2563,7 @@ async function importBackup(file){
          !confirm('"' + nb.title + '"은(는) 이 기기 것이 더 최신이에요. 그래도 백업 내용으로 덮어쓸까요?')){ skipped++; continue; }
       const pe = pdfMap.get(nb.id);
       if(pe) nb.pdfBuffer = (await zipBytes(zip, pe)).buffer;
+      else if(local){ if(local.pdfBuffer) nb.pdfBuffer = local.pdfBuffer; else if(local.pdfInStore) nb.pdfInStore = true; } // 백업에 원본이 없으면 이 기기 것을 유지
       // 옛 백업이 클라우드의 최신본을 덮어쓰지 않도록 이 기기에만 반영한다(원하면 아래 버튼으로 올림)
       await dbPut(nb, {skipSync:true});
       restoredIds.push(nb.id);
@@ -2798,6 +2865,7 @@ async function openNotebook(id, targetPage, targetShortcutId){
   updateNoteSyncBtn();
   applyNotePenDefault(); // 이 노트에 정해둔 기본 펜(색·굵기)이 있으면 그걸로 시작
   updateIdleColorMark(); armIdleColorRevert();
+  if(current.type === 'pdf') await ensurePdfBuffer(current); // PDF 원본은 별도 저장소에서 꺼냄
   // ---- 동기화된 PDF 노트의 원본 파일 자가 복구 ----
   // (A) 다른 기기에서 받아온 노트인데 PDF 원본이 아직 이 기기에 없으면 지금 내려받음
   if(current.type === 'pdf' && !current.pdfBuffer && current.pdfStoragePath && fbStorage && fbUser){
@@ -3145,20 +3213,12 @@ function buildBlockContent(block, idx){
   block.innerHTML = '';
   const page = current.pages[idx];
 
-  const baseCanvas = document.createElement('canvas');
-  baseCanvas.width = page.width * RES_SCALE; baseCanvas.height = page.height * RES_SCALE;
-  baseCanvas.style.width = page.width+'px'; baseCanvas.style.height = page.height+'px';
-  baseCanvas.style.zIndex = 0; // 배경/PDF는 이미지(z:15)보다도 아래, 항상 맨 밑에 깔림
+  const isPdf = current.type === 'pdf';
+  const bgScale = isPdf ? pdfBgScale() : RES_SCALE; // PDF 바탕은 화면에 필요한 만큼만 선명하게(필기 캔버스는 그대로 RES_SCALE)
+  const baseCanvas = makeBaseCanvas(page, bgScale);
+  block.dataset.bgScale = bgScale;
   block.appendChild(baseCanvas);
-  const bctx = baseCanvas.getContext('2d');
-  paintPageBackground(bctx, page, baseCanvas.width, baseCanvas.height);
-
-  if(current.type === 'pdf' && pdfDoc){
-    pdfDoc.getPage(pdfPageNo(page, idx)).then(p=>{
-      const vp = p.getViewport({scale: 2*RES_SCALE});
-      return p.render({canvasContext: bctx, viewport: vp}).promise;
-    }).catch(err=>console.error('PDF render failed', err));
-  }
+  if(isPdf && pdfDoc) renderPdfInto(baseCanvas, page, idx, bgScale);
 
   page.layers.forEach((layer, li)=>{
     const c = document.createElement('canvas');
@@ -3178,6 +3238,52 @@ function buildBlockContent(block, idx){
   page.shortcuts.forEach(sc=> block.appendChild(createShortcutElement(page, idx, sc)));
   if(!page.texts) page.texts = [];
   page.texts.forEach(tx=> block.appendChild(createTextElement(page, idx, tx)));
+}
+/* PDF 바탕 해상도 (2026-10-12): 예전엔 늘 6배(2×RES_SCALE)로 그려 한 쪽에 0.2초(데스크톱 실측)씩 걸리고
+   메모리도 많이 썼음. 지금 배율×기기 화질에 15% 여유를 둔 만큼만 그리고, 확대하면 그때 더 선명하게 다시 그림. */
+const PDF_BG_STEPS = [1, 1.5, 2, 2.5, 3];
+function pdfBgScale(){
+  const need = (zoom || 1) * (window.devicePixelRatio || 1) * 1.15;
+  return PDF_BG_STEPS.find(v=> v >= need) || RES_SCALE;
+}
+function makeBaseCanvas(page, bgScale){
+  const c = document.createElement('canvas');
+  c.className = 'np-base';
+  c.width = Math.round(page.width * bgScale); c.height = Math.round(page.height * bgScale);
+  c.style.width = page.width+'px'; c.style.height = page.height+'px';
+  c.style.zIndex = 0; // 배경/PDF는 이미지(z:15)보다도 아래, 항상 맨 밑에 깔림
+  const bctx = c.getContext('2d');
+  bctx.save(); bctx.scale(bgScale / RES_SCALE, bgScale / RES_SCALE);
+  paintPageBackground(bctx, page, page.width * RES_SCALE, page.height * RES_SCALE);
+  bctx.restore();
+  return c;
+}
+function renderPdfInto(canvas, page, idx, bgScale){
+  return pdfDoc.getPage(pdfPageNo(page, idx)).then(p=>{
+    const vp = p.getViewport({scale: 2 * bgScale});
+    return p.render({canvasContext: canvas.getContext('2d'), viewport: vp}).promise;
+  }).catch(err=>console.error('PDF render failed', err));
+}
+let bgRescaleTimer = null;
+function scheduleBgRescale(){
+  if(!current || current.type !== 'pdf') return;
+  clearTimeout(bgRescaleTimer);
+  bgRescaleTimer = setTimeout(rescaleBuiltBackgrounds, 400); // 확대가 멈춘 뒤에 한 번만
+}
+async function rescaleBuiltBackgrounds(){
+  if(!current || current.type !== 'pdf' || !pdfDoc) return;
+  if(drawing){ scheduleBgRescale(); return; } // 쓰는 중이면 뗀 뒤로 미룸
+  const want = pdfBgScale();
+  for(const b of stackEl.querySelectorAll('.page-block[data-built="1"]')){
+    if(+b.dataset.bgScale >= want - 0.01) continue;
+    const idx = +b.dataset.pageIdx, page = current.pages[idx];
+    const old = b.querySelector('canvas.np-base');
+    if(!page || !old) continue;
+    const fresh = makeBaseCanvas(page, want);
+    b.dataset.bgScale = want;
+    await renderPdfInto(fresh, page, idx, want); // 다 그린 뒤에 바꿔 끼워 깜빡임 없게
+    if(old.isConnected && b.dataset.built === '1' && +b.dataset.bgScale === want) old.replaceWith(fresh);
+  }
 }
 function ensureBlockBuilt(idx){
   const block = stackEl.querySelector(`.page-block[data-page-idx="${idx}"]`);
@@ -3698,6 +3804,7 @@ function touchEntries(){
 // 그래서 배율이 바뀔 때마다 음수/양수 여백으로 스크롤 영역을 '보이는 크기'에 맞춰준다.
 function syncStackFootprint(){
   if(!current || !current.pages.length) return;
+  scheduleBgRescale(); // 배율이 바뀌었으면 PDF 바탕을 필요한 선명도로 다시
   const maxW = Math.max(...current.pages.map(p=>p.width));
   const natH = stackEl.offsetHeight; // 배율이 걸리기 전 레이아웃 높이(자리표시자도 실제 높이를 가짐). 여백은 포함 안 되므로 값이 흔들리지 않음
   stackEl.style.marginRight = (maxW * zoom - maxW) + 'px';
@@ -7613,7 +7720,7 @@ function updateThumbnailSoon(){
    - 파일 앞 2KB만 Range로 받아 확인하므로 데이터를 거의 안 씀(서버가 Range를 무시해도 동작은 함)
    - 캐시를 확실히 피하려고 일회용 ?nc= 를 붙여서 받음(브라우저가 그 주소를 캐시해도 다음엔 다른 번호라 무해)
    - GitHub Pages는 max-age=600이라 그냥 둬도 10분 뒤엔 새 파일을 받지만, 그걸 기다리지 않고 알려주기 위함 */
-const APP_BUILD = '2026-10-11a';
+const APP_BUILD = '2026-10-12a';
 const UPDATE_RECHECK_MS = 10 * 60 * 1000;
 let updateBannerShown = false, lastUpdateCheck = 0;
 function appBaseUrl(){ return location.pathname.replace(/[^/]*$/, ''); }
