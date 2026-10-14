@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>NotePen</title>
-<!-- build: 2026-10-14a (모아보기: 고른 페이지를 긴 이미지 한 장으로) -->
+<!-- build: 2026-10-15a (모아보기 이미지: 클립보드에 복사) -->
 <style>
   :root{
     --bg: #f4f3f1;
@@ -7199,8 +7199,30 @@ function ovShowExport(files){
     toast(files.length > 1 ? files.length + '개 파일을 내려받아요' : '내려받기 폴더에 저장해요');
   }));
   row.appendChild(ovBtn('닫기', '', ()=> ovHideExport()));
+  // 클립보드에 복사 (2026-10-15): 클립보드엔 이미지가 한 장만 들어가므로 여러 장이면 장마다 버튼
+  const crow = document.createElement('div'); crow.className = 'ov-ex-row';
+  files.forEach((f, i)=>{
+    crow.appendChild(ovBtn(files.length > 1 ? (i + 1) + '장 복사' : '클립보드에 복사', '', ()=> copyImageToClipboard(f, files.length > 1 ? (i + 1) + '장' : '')));
+  });
+  box.appendChild(crow);
   box.appendChild(row);
   box.classList.add('show');
+}
+async function copyImageToClipboard(file, label){
+  if(!(navigator.clipboard && navigator.clipboard.write && window.ClipboardItem)){
+    toast('이 브라우저는 이미지 복사를 지원하지 않아요 — [공유·갤러리 저장]이나 [파일로 저장]을 써 주세요');
+    return false;
+  }
+  try{
+    // Promise로 넘기면 버튼을 누른 그 순간(사용자 동작)에 바로 클립보드 요청이 시작돼 막히지 않음
+    await navigator.clipboard.write([new ClipboardItem({'image/png': Promise.resolve(file.type === 'image/png' ? file : new Blob([file], {type:'image/png'}))})]);
+    toast((label ? label + ' ' : '') + '이미지를 클립보드에 복사했어요 — 다른 앱에서 길게 눌러 붙여넣기');
+    return true;
+  }catch(err){
+    console.error('클립보드 복사 실패', err);
+    toast('클립보드에 복사하지 못했어요' + (err && err.name === 'NotAllowedError' ? ' (권한이 막혀 있어요)' : '') + ' — [공유·갤러리 저장]을 써 주세요');
+    return false;
+  }
 }
 function ovHideExport(){ const box = document.getElementById('ov-export'); box.classList.remove('show'); box.innerHTML = ''; ovExportFiles = []; }
 
@@ -7807,7 +7829,7 @@ function updateThumbnailSoon(){
    - 파일 앞 2KB만 Range로 받아 확인하므로 데이터를 거의 안 씀(서버가 Range를 무시해도 동작은 함)
    - 캐시를 확실히 피하려고 일회용 ?nc= 를 붙여서 받음(브라우저가 그 주소를 캐시해도 다음엔 다른 번호라 무해)
    - GitHub Pages는 max-age=600이라 그냥 둬도 10분 뒤엔 새 파일을 받지만, 그걸 기다리지 않고 알려주기 위함 */
-const APP_BUILD = '2026-10-14a';
+const APP_BUILD = '2026-10-15a';
 const UPDATE_RECHECK_MS = 10 * 60 * 1000;
 let updateBannerShown = false, lastUpdateCheck = 0;
 function appBaseUrl(){ return location.pathname.replace(/[^/]*$/, ''); }
