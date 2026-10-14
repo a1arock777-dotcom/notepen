@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>NotePen</title>
-<!-- build: 2026-10-12a (PDF 노트 가볍게 — 원본 따로 저장·바탕 해상도 조절) -->
+<!-- build: 2026-10-14a (모아보기: 고른 페이지를 긴 이미지 한 장으로) -->
 <style>
   :root{
     --bg: #f4f3f1;
@@ -493,6 +493,12 @@
   #ov-ghost span{ position:absolute; top:-10px; right:-10px; background:var(--accent); color:#fff; font-weight:800; font-size:13px; border-radius:999px; padding:3px 8px; box-shadow:var(--shadow); }
   #ov-undo{ position:fixed; bottom:24px; left:50%; transform:translateX(-50%); z-index:97; display:none; align-items:center; gap:10px; background:rgba(30,30,34,0.95); color:#fff; padding:7px 7px 7px 16px; border-radius:999px; font-size:13.5px; font-weight:700; box-shadow:var(--shadow); white-space:nowrap; }
   #ov-undo.show{ display:flex; }
+  #ov-export{ position:fixed; left:50%; top:50%; transform:translate(-50%,-50%); z-index:98; display:none; flex-direction:column; gap:10px; align-items:stretch;
+    background:var(--surface); color:var(--text); border:1px solid var(--border); border-radius:14px; box-shadow:0 10px 30px rgba(0,0,0,0.3); padding:14px; width:min(420px, calc(100vw - 32px)); max-height:calc(100vh - 40px); }
+  #ov-export.show{ display:flex; }
+  #ov-export .ov-ex-title{ font-weight:800; font-size:14.5px; }
+  #ov-export .ov-ex-preview{ width:100%; max-height:50vh; object-fit:contain; object-position:top; background:#d9d6d1; border-radius:8px; }
+  #ov-export .ov-ex-row{ display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end; }
   #ov-undo button{ border:none; background:var(--accent); color:#fff; font-weight:800; border-radius:999px; padding:7px 14px; font-size:13.5px; }
   #page-scrub{
     background:rgba(30,30,34,0.82); color:white; border-radius:999px; padding:8px 4px;
@@ -1136,6 +1142,7 @@
     <div id="ov-ins"></div>
     <div id="ov-ghost"></div>
     <div id="ov-undo"></div>
+    <div id="ov-export"></div>
     <div class="canvas-wrap" id="canvas-wrap">
       <div class="page-stack" id="page-stack"></div>
     </div>
@@ -6951,7 +6958,7 @@ async function renderPageThumb(cv, page, idx, W, gen){
     }catch(err){ /* PDF를 못 그려도 필기는 보여줌 */ }
   }
   const imgs = await Promise.all((page.images || []).map(im=> loadImg(im.src)));
-  if(gen !== ovGen) return;
+  if(gen !== null && gen !== ovGen) return; // gen=null: 내보내기용(모아보기와 무관)
   (page.images || []).forEach((im, i)=>{ if(imgs[i]) ctx.drawImage(imgs[i], im.x * cs, im.y * cs, im.w * cs, im.h * cs); });
   // 레이어마다 따로 그린 뒤 겹침(drawLayer가 캔버스를 비우고 그리므로 공용 캔버스에 바로 그리면 안 됨)
   const lc = document.createElement('canvas'); lc.width = W; lc.height = H;
@@ -6971,7 +6978,7 @@ async function renderPageThumb(cv, page, idx, W, gen){
     ctx.font = `${fs}px 'Malgun Gothic','Apple SD Gothic Neo','Noto Sans KR',sans-serif`;
     String(tx.text || '').split('\n').forEach((line, li)=> ctx.fillText(line, (tx.x + 6.5) * cs, (tx.y + 3.5) * cs + li * fs * 1.35));
   });
-  if(gen !== ovGen || !cv.isConnected) return;
+  if(gen !== null && (gen !== ovGen || !cv.isConnected)) return;
   cv.width = W; cv.height = H; cv.getContext('2d').drawImage(off, 0, 0);
   cv.dataset.rw = W;
 }
@@ -7052,7 +7059,8 @@ function ovRenderBar(confirmMsg, onYes){
     }));
     const cp = ovBtn('복사', 'primary', ()=> ovStartCopy(), '복사한 뒤 넣을 자리를 누르기'); cp.disabled = !k;
     const del = ovBtn('삭제', 'danger', ()=> ovAskDelete(), '선택한 페이지 삭제'); del.disabled = !k;
-    ovBar.appendChild(cp); ovBar.appendChild(del);
+    const ex = ovBtn('이미지로', '', ()=> ovExportImage(), '선택한 페이지를 세로로 이어 붙인 긴 이미지 한 장으로 저장·공유'); ex.disabled = !k;
+    ovBar.appendChild(ex); ovBar.appendChild(cp); ovBar.appendChild(del);
   } else if(ovMode === 'place'){
     ovBar.appendChild(ovBtn('취소', '', ()=>{ ovClip = null; ovMode = ovSel.size ? 'select' : 'view'; ovHideIns(); ovRenderBar(); }));
     title.textContent = ovClip.length + '장 복사됨';
@@ -7099,7 +7107,7 @@ function openOverview(){
 function closeOverview(goIdx){
   if(!ovOpen) return;
   ovOpen = false; ovMode = 'view'; ovSel.clear(); ovClip = null;
-  ovEndPointer(); ovHideIns(); ovHideUndo();
+  ovEndPointer(); ovHideIns(); ovHideUndo(); ovHideExport();
   ovEl.classList.remove('open', 'selecting');
   if(ovObserver) ovObserver.disconnect();
   ovGen++; ovQueue = []; ovGrid.innerHTML = '';
@@ -7117,6 +7125,84 @@ function closeOverview(goIdx){
   saveLastPos(true);
 }
 function ovExitSelect(){ ovSel.clear(); ovMode = 'view'; ovHideIns(); ovRefreshSelClasses(); }
+
+/* --- 이미지로 내보내기 (2026-10-14) ---
+   선택한 페이지를 순서대로 세로로 이어 붙여 긴 이미지 한 장으로 만듦(삼성 스크롤 캡처가 NotePen에선 안 내려가서).
+   폭 EXPORT_W px, 한 장이 너무 길면(브라우저 캔버스 한계) EXPORT_MAX_H마다 나눠 여러 장으로.
+   공유·저장은 다 만든 뒤 사용자가 버튼을 눌러서(공유 창은 사용자 동작 안에서만 열림). */
+const EXPORT_W = 1400, EXPORT_GAP = 16, EXPORT_MAX_H = 16000;
+let ovExportFiles = [];
+function exportFileBase(){
+  return (String((current && current.title) || 'NotePen').replace(/[\\/:*?"<>|\s]+/g, '_').slice(0, 60) || 'NotePen');
+}
+async function ovExportImage(){
+  const sel = ovSelectedInOrder(); if(!sel.length) return;
+  const idxs = sel.map(p=> current.pages.indexOf(p));
+  const W = Math.min(EXPORT_W, Math.max(...sel.map(p=> p.width)));
+  // 페이지들을 EXPORT_MAX_H를 넘지 않게 묶음으로 나눔
+  const groups = []; let cur = [], h = 0;
+  sel.forEach((p, i)=>{
+    const ph = Math.round(W * p.height / p.width);
+    const add = (cur.length ? EXPORT_GAP : 0) + ph;
+    if(cur.length && h + add > EXPORT_MAX_H){ groups.push(cur); cur = []; h = 0; }
+    cur.push({p, idx: idxs[i], ph}); h += (cur.length > 1 ? EXPORT_GAP : 0) + ph;
+  });
+  if(cur.length) groups.push(cur);
+  const files = []; let done = 0;
+  for(let gi = 0; gi < groups.length; gi++){
+    const g = groups[gi];
+    const H = g.reduce((a, x, i)=> a + x.ph + (i ? EXPORT_GAP : 0), 0);
+    const out = document.createElement('canvas'); out.width = W; out.height = H;
+    const octx = out.getContext('2d');
+    octx.fillStyle = '#d9d6d1'; octx.fillRect(0, 0, W, H); // 페이지 사이 틈 색
+    let y = 0;
+    for(const x of g){
+      toast('이미지 만드는 중… ' + (++done) + '/' + sel.length + '쪽');
+      const cv = document.createElement('canvas');
+      await renderPageThumb(cv, x.p, x.idx, W, null);
+      octx.drawImage(cv, 0, y, W, x.ph);
+      cv.width = 1; cv.height = 1;
+      y += x.ph + EXPORT_GAP;
+      await new Promise(r=> setTimeout(r, 0)); // 화면이 멈추지 않게 한 박자 쉼
+    }
+    const blob = await new Promise(r=> out.toBlob(r, 'image/png'));
+    out.width = 1; out.height = 1;
+    if(!blob){ toast('이미지를 만들지 못했어요 (메모리 부족일 수 있어요 — 페이지를 나눠 골라 주세요)'); return; }
+    const first = g[0].idx + 1, last = g[g.length - 1].idx + 1;
+    const name = exportFileBase() + '_' + (first === last ? first : first + '-' + last) + '쪽' + (groups.length > 1 ? '_' + (gi + 1) : '') + '.png';
+    files.push(new File([blob], name, {type: 'image/png'}));
+  }
+  ovExportFiles = files;
+  ovShowExport(files);
+}
+function ovShowExport(files){
+  const box = document.getElementById('ov-export');
+  box.innerHTML = '';
+  const t = document.createElement('div'); t.className = 'ov-ex-title';
+  const mb = files.reduce((a, f)=> a + f.size, 0) / 1e6;
+  t.textContent = (files.length > 1 ? '길어서 ' + files.length + '장으로 나눴어요' : '이미지 1장을 만들었어요') + ' · ' + mb.toFixed(1) + 'MB';
+  box.appendChild(t);
+  const img = document.createElement('img'); img.className = 'ov-ex-preview'; img.alt = '미리보기';
+  img.src = URL.createObjectURL(files[0]); img.onload = ()=> URL.revokeObjectURL(img.src);
+  box.appendChild(img);
+  const row = document.createElement('div'); row.className = 'ov-ex-row';
+  const canShare = !!(navigator.canShare && navigator.canShare({files}));
+  if(canShare) row.appendChild(ovBtn('공유·갤러리 저장', 'primary', async ()=>{
+    try{ await navigator.share({files, title: exportFileBase()}); }
+    catch(err){ if(err && err.name !== 'AbortError') toast('공유하지 못했어요 — [파일로 저장]을 눌러 주세요'); }
+  }));
+  row.appendChild(ovBtn('파일로 저장', canShare ? '' : 'primary', ()=>{
+    files.forEach((f, i)=> setTimeout(()=>{
+      const a = document.createElement('a'); a.href = URL.createObjectURL(f); a.download = f.name;
+      document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=> URL.revokeObjectURL(a.href), 4000);
+    }, i * 700));
+    toast(files.length > 1 ? files.length + '개 파일을 내려받아요' : '내려받기 폴더에 저장해요');
+  }));
+  row.appendChild(ovBtn('닫기', '', ()=> ovHideExport()));
+  box.appendChild(row);
+  box.classList.add('show');
+}
+function ovHideExport(){ const box = document.getElementById('ov-export'); box.classList.remove('show'); box.innerHTML = ''; ovExportFiles = []; }
 
 /* --- 쪽 번호 참조 고치기 (목차·바로가기·linkedFrom) --- */
 // map[옛 번호] = 새 번호(지워졌으면 -1). 지워진 쪽을 가리키던 참조는 바로 다음에 남은 쪽(없으면 앞쪽)으로.
@@ -7426,6 +7512,7 @@ window.addEventListener('keydown', (e)=>{
   e.stopImmediatePropagation(); // 모아보기 중에는 노트 단축키(숫자·Ctrl+B 등)가 뒤에서 동작하지 않게
   if(e.key === 'Escape'){
     e.preventDefault();
+    if(document.getElementById('ov-export').classList.contains('show')){ ovHideExport(); return; }
     if(ovMode === 'place' || ovMode === 'confirm'){ ovClip = null; ovMode = ovSel.size ? 'select' : 'view'; ovHideIns(); ovRenderBar(); }
     else if(ovMode === 'select') ovExitSelect();
     else closeOverview();
@@ -7720,7 +7807,7 @@ function updateThumbnailSoon(){
    - 파일 앞 2KB만 Range로 받아 확인하므로 데이터를 거의 안 씀(서버가 Range를 무시해도 동작은 함)
    - 캐시를 확실히 피하려고 일회용 ?nc= 를 붙여서 받음(브라우저가 그 주소를 캐시해도 다음엔 다른 번호라 무해)
    - GitHub Pages는 max-age=600이라 그냥 둬도 10분 뒤엔 새 파일을 받지만, 그걸 기다리지 않고 알려주기 위함 */
-const APP_BUILD = '2026-10-12a';
+const APP_BUILD = '2026-10-14a';
 const UPDATE_RECHECK_MS = 10 * 60 * 1000;
 let updateBannerShown = false, lastUpdateCheck = 0;
 function appBaseUrl(){ return location.pathname.replace(/[^/]*$/, ''); }
