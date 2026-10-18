@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>NotePen</title>
-<!-- build: 2026-10-18c (이면지 자동 줄 올리기 기준선 25%) -->
+<!-- build: 2026-10-18d (라이브러리 단축키 설명서) -->
 <style>
   :root{
     --bg: #f4f3f1;
@@ -226,6 +226,18 @@
   .empty{
     margin-top:60px; text-align:center; color:var(--text-dim); font-size:14px; line-height:1.7;
   }
+
+  /* ---------- 단축키 설명서 ---------- */
+  #modal-guide .modal{ max-width:600px; max-height:88vh; display:flex; flex-direction:column; padding:18px 18px 10px; }
+  #guide-body{ overflow-y:auto; flex:1 1 auto; margin:0 -4px; padding:0 4px; overscroll-behavior:contain; }
+  .guide-sec{ margin:14px 0 4px; font-size:13.5px; font-weight:800; color:var(--accent-2); }
+  .guide-sec:first-child{ margin-top:4px; }
+  .guide-row{ display:flex; gap:12px; align-items:flex-start; padding:7px 2px; border-bottom:1px solid var(--border); font-size:13px; line-height:1.45; }
+  .guide-k{ flex:0 0 150px; font-weight:700; color:var(--text); }
+  .guide-k kbd{ display:inline-block; font:inherit; font-size:12px; padding:1px 6px; margin:1px 0; border:1px solid var(--border); border-bottom-width:2px; border-radius:6px; background:var(--surface-2); }
+  .guide-d{ flex:1 1 auto; color:var(--text-dim); min-width:0; }
+  .guide-note{ font-size:12px; color:var(--text-dim); margin:12px 2px 4px; line-height:1.5; }
+  @media (max-width:480px){ .guide-row{ flex-direction:column; gap:2px; } .guide-k{ flex-basis:auto; } }
 
   /* ---------- New notebook modal ---------- */
   .modal-backdrop{
@@ -787,6 +799,7 @@
         <div class="lib-sub" id="lib-count">0개의 노트</div>
       </div>
       <div style="display:flex; align-items:center;">
+        <button class="icon-btn" id="btn-guide" title="단축키 설명서" style="width:44px;height:44px;border-radius:50%;background:var(--surface);border:1px solid var(--border);margin-right:8px;font-size:19px;">📖</button>
         <button class="icon-btn" id="btn-sync" title="기기 간 동기화 설정" style="width:44px;height:44px;border-radius:50%;background:var(--surface);border:1px solid var(--border);margin-right:8px;">☁️</button>
         <button class="icon-btn" id="btn-backup" title="백업 · 복원" style="width:44px;height:44px;border-radius:50%;background:var(--surface);border:1px solid var(--border);margin-right:8px;">💾</button>
         <button class="icon-btn" id="btn-hotkeys" title="숫자 단축키 (1~0번에 노트 지정)" style="width:44px;height:44px;border-radius:50%;background:var(--surface);border:1px solid var(--border);margin-right:8px;"><svg viewBox="0 0 24 24" width="21" height="21" aria-hidden="true"><rect x="1.8" y="5.2" width="20.4" height="13.6" rx="2.4" fill="none" stroke="currentColor" stroke-width="1.8"/><g fill="currentColor"><rect x="4.6" y="8.2" width="2.2" height="2.2" rx="0.6"/><rect x="8.2" y="8.2" width="2.2" height="2.2" rx="0.6"/><rect x="11.8" y="8.2" width="2.2" height="2.2" rx="0.6"/><rect x="15.4" y="8.2" width="2.2" height="2.2" rx="0.6"/><rect x="4.6" y="11.6" width="2.2" height="2.2" rx="0.6"/><rect x="8.2" y="11.6" width="2.2" height="2.2" rx="0.6"/><rect x="11.8" y="11.6" width="2.2" height="2.2" rx="0.6"/><rect x="15.4" y="11.6" width="2.2" height="2.2" rx="0.6"/><rect x="6.4" y="15" width="11.2" height="2.2" rx="1.1"/></g></svg></button>
@@ -935,6 +948,15 @@
       </div>
       <button class="opt-btn" id="toc-add-btn" style="margin-top:9px;">➕ 지금 보는 페이지를 목차에 추가</button>
       <button class="modal-close" id="modal-toc-close">닫기</button>
+    </div>
+  </div>
+
+  <!-- 단축키 설명서 -->
+  <div class="modal-backdrop" id="modal-guide" style="display:none;">
+    <div class="modal">
+      <h3>📖 단축키 설명서</h3>
+      <div id="guide-body"><div class="guide-sec">⌨️ 키보드 — 어디서나</div><div class="guide-row"><div class="guide-k"><kbd>Ctrl</kbd> + <kbd>Q</kbd></div><div class="guide-d">펜으로 꾹 눌러 글상자 만들기 켜기/끄기</div></div><div class="guide-row"><div class="guide-k"><kbd>Ctrl</kbd> + <kbd>B</kbd></div><div class="guide-d">펜 예측(필기 끝을 미리 그려 덜 늦어 보이게) 켜기/끄기</div></div><div class="guide-row"><div class="guide-k"><kbd>Ctrl</kbd> + <kbd>M</kbd></div><div class="guide-d">이면지 자동 줄 올리기 켜기/끄기 (화면 위 25% 선 아래에 쓰고 1초 쉬면 쓴 줄이 위로 올라옴)</div></div><div class="guide-row"><div class="guide-k"><kbd>1</kbd> ~ <kbd>0</kbd></div><div class="guide-d">번호에 지정해 둔 노트 바로 열기 (지정은 라이브러리의 키보드 모양 버튼)</div></div><div class="guide-row"><div class="guide-k"><kbd>Tab</kbd></div><div class="guide-d">바로 전에 보던 노트로 돌아가기</div></div><div class="guide-sec">✂️ 키보드 — 노트 화면 (올가미 선택)</div><div class="guide-row"><div class="guide-k"><kbd>Ctrl</kbd> + <kbd>C</kbd></div><div class="guide-d">올가미로 고른 필기 복사</div></div><div class="guide-row"><div class="guide-k"><kbd>Ctrl</kbd> + <kbd>X</kbd></div><div class="guide-d">올가미로 고른 필기 잘라내기</div></div><div class="guide-row"><div class="guide-k"><kbd>Ctrl</kbd> + <kbd>V</kbd></div><div class="guide-d">붙여넣기 → 놓을 자리를 펜으로 탭</div></div><div class="guide-sec">🔤 키보드 — 글상자</div><div class="guide-row"><div class="guide-k"><kbd>Enter</kbd> / <kbd>Esc</kbd></div><div class="guide-d">글상자를 고른 상태: 선택 풀기 (배경에 박힘)</div></div><div class="guide-row"><div class="guide-k"><kbd>Delete</kbd> / <kbd>Backspace</kbd></div><div class="guide-d">고른 글상자 통째로 지우기 (되돌리기로 복구 가능)</div></div><div class="guide-row"><div class="guide-k"><kbd>F2</kbd></div><div class="guide-d">고른 글상자 글자 고치기 (두 번 탭과 같음)</div></div><div class="guide-row"><div class="guide-k"><kbd>Enter</kbd></div><div class="guide-d">입력 중: 입력 마치기</div></div><div class="guide-row"><div class="guide-k"><kbd>Shift</kbd> + <kbd>Enter</kbd></div><div class="guide-d">입력 중: 줄 바꾸기</div></div><div class="guide-row"><div class="guide-k"><kbd>Esc</kbd></div><div class="guide-d">입력 중: 입력 마치기</div></div><div class="guide-sec">▦ 키보드 — 페이지 모아보기 · 라이브러리</div><div class="guide-row"><div class="guide-k"><kbd>Esc</kbd></div><div class="guide-d">모아보기: 내보내기 창 → 붙여넣기 → 선택 → 모아보기 순서로 한 단계씩 닫기</div></div><div class="guide-row"><div class="guide-k"><kbd>Ctrl</kbd> + 휠</div><div class="guide-d">모아보기: 한 줄에 보이는 페이지 수 조절</div></div><div class="guide-row"><div class="guide-k"><kbd>Esc</kbd> / <kbd>Enter</kbd></div><div class="guide-d">라이브러리 검색칸: 검색어 지우기 / 입력 마치기</div></div><div class="guide-sec">✍️ 펜 동작</div><div class="guide-row"><div class="guide-k">펜 꾹 누르기 (0.45초)</div><div class="guide-d">그 자리에 글상자 만들기 (Ctrl+Q로 끄고 켬)</div></div><div class="guide-row"><div class="guide-k">펜 지우개 끝</div><div class="guide-d">도구와 상관없이 항상 지우기</div></div><div class="guide-row"><div class="guide-k">펜을 아이콘 위에 잠시</div><div class="guide-d">그 아이콘 설명 보기</div></div><div class="guide-sec">👆 손가락 동작</div><div class="guide-row"><div class="guide-k">한 손가락 끌기</div><div class="guide-d">화면 이동 (스크롤)</div></div><div class="guide-row"><div class="guide-k">두 손가락 벌리기/오므리기</div><div class="guide-d">확대 · 축소</div></div><div class="guide-row"><div class="guide-k">한 손가락 두 번 톡톡</div><div class="guide-d">페이지 폭에 맞추기 ↔ 원래 배율</div></div><div class="guide-row"><div class="guide-k">두 손가락 톡</div><div class="guide-d">되돌리기 (Ctrl+Z와 같음)</div></div><div class="guide-sec">⏱️ 꾹 누르는 버튼들</div><div class="guide-row"><div class="guide-k">펜 버튼 꾹</div><div class="guide-d">이 노트의 기본 펜(색·굵기) 정하기 — 노트를 열 때 적용</div></div><div class="guide-row"><div class="guide-k">색깔 칸 3초 꾹</div><div class="guide-d">이 노트의 "쉴 때 돌아갈 색" 정하기 — 5초 쉬면 그 색으로 복귀</div></div><div class="guide-row"><div class="guide-k">지우개 버튼 0.45초 꾹</div><div class="guide-d">지우개 방식 고르기 (짧게 탭하면 지금 방식으로 지움)</div></div><div class="guide-row"><div class="guide-k">전체화면 버튼 0.6초 꾹</div><div class="guide-d">전체화면 고정/해제 (🔒 표시, 고정 중엔 짧게 눌러도 안 나감)</div></div><div class="guide-row"><div class="guide-k">"이" 버튼 꾹</div><div class="guide-d">이면지로 쓸 노트 다시 고르기</div></div><div class="guide-sec">▦ 페이지 모아보기 (제목줄 ▦ 버튼)</div><div class="guide-row"><div class="guide-k">페이지 탭</div><div class="guide-d">그 페이지로 이동</div></div><div class="guide-row"><div class="guide-k">페이지 꾹 누르기</div><div class="guide-d">선택 모드 → 여러 장 고르기</div></div><div class="guide-row"><div class="guide-k">고른 페이지 끌기</div><div class="guide-d">원하는 자리로 옮기기</div></div><div class="guide-row"><div class="guide-k">선택 후 아래 버튼</div><div class="guide-d">삭제(되돌리기 가능) · 복사해 붙이기 · 이미지로 내보내기/클립보드 복사</div></div><div class="guide-row"><div class="guide-k">두 손가락 벌리기/오므리기</div><div class="guide-d">한 줄에 보이는 페이지 수 조절</div></div><div class="guide-note">※ 키보드 단축키는 블루투스·북커버 키보드를 연결했을 때 써요. 삼성 인터넷은 Ctrl+E를 브라우저가 먼저 가져가서 앱에서 쓰지 않아요.</div></div>
+      <button class="modal-close" id="modal-guide-close">닫기</button>
     </div>
   </div>
 
@@ -1634,6 +1656,20 @@ function onFirebaseAuthReady(){
     if(user) syncStartListening();
   });
 }
+/* ---------- 단축키 설명서 ---------- */
+(function(){
+  const m = document.getElementById('modal-guide');
+  const close = ()=>{ m.style.display = 'none'; };
+  document.getElementById('btn-guide').addEventListener('click', ()=>{
+    m.style.display = 'flex';
+    document.getElementById('guide-body').scrollTop = 0;
+  });
+  document.getElementById('modal-guide-close').addEventListener('click', close);
+  m.addEventListener('click', (e)=>{ if(e.target === m) close(); });
+  document.addEventListener('keydown', (e)=>{
+    if(e.key === 'Escape' && m.style.display !== 'none'){ e.preventDefault(); close(); }
+  });
+})();
 document.getElementById('btn-sync').onclick = ()=>{
   document.getElementById('modal-sync').style.display = 'flex';
   refreshSyncModalView();
@@ -7900,7 +7936,7 @@ function updateThumbnailSoon(){
    - 파일 앞 2KB만 Range로 받아 확인하므로 데이터를 거의 안 씀(서버가 Range를 무시해도 동작은 함)
    - 캐시를 확실히 피하려고 일회용 ?nc= 를 붙여서 받음(브라우저가 그 주소를 캐시해도 다음엔 다른 번호라 무해)
    - GitHub Pages는 max-age=600이라 그냥 둬도 10분 뒤엔 새 파일을 받지만, 그걸 기다리지 않고 알려주기 위함 */
-const APP_BUILD = '2026-10-18c';
+const APP_BUILD = '2026-10-18d';
 const UPDATE_RECHECK_MS = 10 * 60 * 1000;
 let updateBannerShown = false, lastUpdateCheck = 0;
 function appBaseUrl(){ return location.pathname.replace(/[^/]*$/, ''); }
