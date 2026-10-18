@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>NotePen</title>
-<!-- build: 2026-10-18b (이면지 자동 줄 올리기 기준선 35%) -->
+<!-- build: 2026-10-18c (이면지 자동 줄 올리기 기준선 25%) -->
 <style>
   :root{
     --bg: #f4f3f1;
@@ -3628,10 +3628,10 @@ function updateInkPredBadge(){
   else if(inkPredBadge.isConnected) inkPredBadge.remove();
 }
 /* ---------- 이면지 자동 줄 올리기 (2026-10-18) ----------
-   팔을 옮기지 않고 늘 화면 위쪽에서 쓰도록: 이면지 노트에서 화면 위 35%(AUTOLIFT_LINE, 10-18 사용자 요청으로 45→35)보다 아래에 쓰고
+   팔을 옮기지 않고 늘 화면 위쪽에서 쓰도록: 이면지 노트에서 화면 위 25%(AUTOLIFT_LINE, 10-18 사용자 요청으로 45→35→25)보다 아래에 쓰고
    펜을 뗀 채 1초(AUTOLIFT_IDLE_MS) 쉬면, 방금 쓴 줄의 아래 끝이 화면 위 15%(AUTOLIFT_TARGET)에 오도록 부드럽게 올림.
    쓰는 동안(1초 안에 다시 펜을 대면)은 움직이지 않음. Ctrl+M으로 켜고 끔(기기별 notepen_autolift, '0'일 때만 끔). */
-const AUTOLIFT_KEY = 'notepen_autolift', AUTOLIFT_LINE = 0.35, AUTOLIFT_TARGET = 0.15, AUTOLIFT_IDLE_MS = 1000, AUTOLIFT_ANIM_MS = 280;
+const AUTOLIFT_KEY = 'notepen_autolift', AUTOLIFT_LINE = 0.25, AUTOLIFT_TARGET = 0.15, AUTOLIFT_IDLE_MS = 1000, AUTOLIFT_ANIM_MS = 280;
 let autoLiftOn = true;
 try{ autoLiftOn = localStorage.getItem(AUTOLIFT_KEY) !== '0'; }catch(e){}
 let autoLiftTimer = null, autoLiftGroupBottom = null, autoLiftStrokeBottom = null, autoLiftAnim = null;
@@ -7900,7 +7900,7 @@ function updateThumbnailSoon(){
    - 파일 앞 2KB만 Range로 받아 확인하므로 데이터를 거의 안 씀(서버가 Range를 무시해도 동작은 함)
    - 캐시를 확실히 피하려고 일회용 ?nc= 를 붙여서 받음(브라우저가 그 주소를 캐시해도 다음엔 다른 번호라 무해)
    - GitHub Pages는 max-age=600이라 그냥 둬도 10분 뒤엔 새 파일을 받지만, 그걸 기다리지 않고 알려주기 위함 */
-const APP_BUILD = '2026-10-18b';
+const APP_BUILD = '2026-10-18c';
 const UPDATE_RECHECK_MS = 10 * 60 * 1000;
 let updateBannerShown = false, lastUpdateCheck = 0;
 function appBaseUrl(){ return location.pathname.replace(/[^/]*$/, ''); }
