@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>NotePen</title>
-<!-- build: 2026-10-18e (이면지 자동 줄 올리기: 매 줄 같은 높이) -->
+<!-- build: 2026-10-18f (이면지 무한노트: 페이지 경계 없이 이어짐) -->
 <style>
   :root{
     --bg: #f4f3f1;
@@ -424,6 +424,9 @@
     position:relative; margin:0 auto 26px; box-shadow:0 4px 22px rgba(0,0,0,0.25); background:white;
   }
   .page-block:last-child{ margin-bottom:0; }
+  /* 이면지 무한노트(2026-10-18f): 페이지 사이 간격·그림자 없이 한 장처럼 이어 보임 (속은 페이지 단위 그대로) */
+  .page-stack.seamless{ box-shadow:0 4px 22px rgba(0,0,0,0.25); }
+  .page-stack.seamless .page-block{ margin:0 auto; box-shadow:none; }
   /* z-index는 JS에서 캔버스마다 개별로 매김(CANVAS_Z_BASE 기준, 레이어 순서 유지하면서
      .page-image보다 항상 높게). pointer-events:none으로 클릭이 그대로 아래(이미지의
      헤더/크기조절 손잡이 등)까지 통과해서, 이미지 드래그·크기조절은 여전히 되면서도
@@ -3228,14 +3231,16 @@ document.getElementById('title-input').oninput = (e)=>{ current.title = e.target
 
 /* ================= Rendering ================= */
 // 페이지들을 세로로 이어붙여서 스크롤 시 위/아래 페이지가 함께 보이는 연속 보기 구조.
-function paintPageBackground(bctx, page, w, h){
+function paintPageBackground(bctx, page, w, h, phase){
   bctx.fillStyle = (page.bgColor) || '#ffffff';
   bctx.fillRect(0,0,w,h);
   if(page.lined){
     bctx.strokeStyle = 'rgba(40,60,140,0.22)';
     bctx.lineWidth = Math.max(1, 1*RES_SCALE);
     const gap = 46 * RES_SCALE;
-    for(let y=gap; y<h; y+=gap){
+    // phase: 무한노트에서 이 페이지 위쪽까지 쌓인 높이(캔버스 px) — 줄 간격이 페이지 경계를 넘어 이어지도록 시작 위치를 맞춤
+    const y0 = phase ? gap - (phase % gap) : gap;
+    for(let y=y0; y<h; y+=gap){
       bctx.beginPath();
       bctx.moveTo(0, y+0.5);
       bctx.lineTo(w, y+0.5);
@@ -3304,7 +3309,7 @@ function makeBaseCanvas(page, bgScale){
   c.style.zIndex = 0; // 배경/PDF는 이미지(z:15)보다도 아래, 항상 맨 밑에 깔림
   const bctx = c.getContext('2d');
   bctx.save(); bctx.scale(bgScale / RES_SCALE, bgScale / RES_SCALE);
-  paintPageBackground(bctx, page, page.width * RES_SCALE, page.height * RES_SCALE);
+  paintPageBackground(bctx, page, page.width * RES_SCALE, page.height * RES_SCALE, seamPhase(page));
   bctx.restore();
   return c;
 }
@@ -3406,6 +3411,7 @@ function renderAllPages(){
   editingText = null; selectedText = null; cancelPenHold(); // 화면을 새로 그리면 글상자 편집/선택 상태는 사라짐
   clearSelection(); // 페이지를 다시 그리면 선택 상자는 사라지므로 상태도 같이 정리
   stackEl.innerHTML = '';
+  stackEl.classList.toggle('seamless', isSeamless());
   const maxW = Math.max(...current.pages.map(p=>p.width));
   stackEl.style.width = maxW+'px';
   stackEl.style.transform = `scale(${zoom})`;
@@ -3877,6 +3883,106 @@ function drawMask(ctx, m){
 function redrawLayerCanvas(pageIdx, layerIdx){
   const c = stackEl.querySelector(`canvas[data-page-idx="${pageIdx}"][data-layer-idx="${layerIdx}"]`);
   if(c) drawLayer(c.getContext('2d'), current.pages[pageIdx].layers[layerIdx]);
+}
+
+/* ---------- 이면지 무한노트 (2026-10-18f) ----------
+   이면지 노트는 페이지 사이 간격 없이 한 장처럼 이어 보이게 함(.page-stack.seamless). 저장·모아보기·내보내기·동기화를 그대로
+   쓰려고 속은 페이지 단위를 유지하고, 경계를 넘는 획은 '닿는 모든 페이지에 같은 획을 좌표만 옮겨 복사'해 둔다(각 페이지가 자기 범위만 잘라 그림).
+   복사본끼리는 같은 seam id로 묶여 지우개로 지우면 함께 지워지고, 되돌리기도 한 번에(snap.also) 된다. */
+function isSeamless(){
+  return !!(current && current.type !== 'pdf' && current.id === getScratchId());
+}
+function seamPhase(page){
+  if(!isSeamless() || !page.lined) return 0;
+  let off = 0;
+  for(const p of current.pages){ if(p === page) return off * RES_SCALE; off += p.height; }
+  return 0;
+}
+let seamLive = null; // 지금 긋는 획을 경계 너머 이웃 페이지 캔버스에도 실시간으로 그리기 위한 [{ctx, dy, h}]
+function seamPrepareLive(){
+  seamLive = null;
+  if(!isSeamless() || !strokeCanvas) return;
+  seamLive = [];
+  for(const d of [-1, 1]){
+    const j = activePageIdx + d;
+    if(j < 0 || j >= current.pages.length || !current.pages[j].layers[activeLayerIdx]) continue;
+    ensureBlockBuilt(j);
+    const c = stackEl.querySelector(`canvas[data-page-idx="${j}"][data-layer-idx="${activeLayerIdx}"]`);
+    if(!c) continue;
+    seamLive.push({ ctx: c.getContext('2d'), dy: d > 0 ? strokeCanvas.height : -c.height, up: d < 0 });
+  }
+  if(!seamLive.length) seamLive = null;
+}
+// 방금 그린 구간(i)이 경계 가까이면 이웃 캔버스에도 같은 구간을 좌표만 옮겨 그림
+function seamMirrorSegment(pts, i, kind){
+  if(!seamLive) return;
+  const M = (size || 4) * RES_SCALE * 2 + 6 * RES_SCALE, H = strokeCanvas.height;
+  let lo = Infinity, hi = -Infinity;
+  for(let k = Math.max(0, i-2); k <= i; k++){ lo = Math.min(lo, pts[k].y); hi = Math.max(hi, pts[k].y); }
+  for(const n of seamLive){
+    if(n.up ? lo > M : hi < H - M) continue;
+    n.ctx.save(); n.ctx.translate(0, -n.dy);
+    if(kind === 'pencil'){ n.ctx.fillStyle = color; pencilQuadSegment(n.ctx, pts, i, size, color, false); }
+    else strokeQuadSegment(n.ctx, pts, i, color, size, false);
+    n.ctx.restore();
+  }
+}
+// 획을 다 그은 뒤: 경계를 넘었으면 닿는 이웃 페이지들에 복사본을 넣고(되돌리기 기록에도 묶음) 다시 그림
+function seamCommitStroke(stroke, pageIdx, layerIdx){
+  seamLive = null;
+  if(!isSeamless() || !stroke || !stroke.points.length) return;
+  let lo = Infinity, hi = -Infinity;
+  stroke.points.forEach(p=>{ lo = Math.min(lo, p.y); hi = Math.max(hi, p.y); });
+  const M = (stroke.size || 4) * RES_SCALE * 2;
+  lo -= M; hi += M;
+  const targets = [];
+  let off = 0; // pageIdx 페이지 위쪽 기준, j 페이지 위쪽까지의 거리(캔버스 px)
+  for(let j = pageIdx + 1; j < current.pages.length; j++){
+    off += current.pages[j-1].height * RES_SCALE;
+    if(hi <= off) break;
+    targets.push({ j, dy: off });
+  }
+  off = 0;
+  for(let j = pageIdx - 1; j >= 0; j--){
+    off -= current.pages[j].height * RES_SCALE;
+    if(lo >= off + current.pages[j].height * RES_SCALE) break;
+    targets.push({ j, dy: off });
+  }
+  const ok = targets.filter(t=> current.pages[t.j].layers[layerIdx]);
+  if(!ok.length) return;
+  const id = stroke.seam || ('sm_' + Date.now().toString(36) + Math.random().toString(36).slice(2,6));
+  stroke.seam = id;
+  const top = history[history.length - 1];
+  ok.forEach(t=>{
+    if(top && top.pageIdx === pageIdx){ (top.also = top.also || []).push(snapshotLayer(t.j, layerIdx)); }
+    const cp = JSON.parse(JSON.stringify(stroke));
+    cp.points = cp.points.map(p=> Object.assign({}, p, { y: Math.round((p.y - t.dy) * 100) / 100 }));
+    current.pages[t.j].layers[layerIdx].strokes.push(cp);
+    ensureBlockBuilt(t.j);
+    redrawLayerCanvas(t.j, layerIdx);
+  });
+}
+// 지우개로 지운 획이 무한노트 복사본이면 다른 페이지의 짝도 같이 지움
+function seamEraseCompanions(ids, pageIdx, layerIdx){
+  if(!ids.size) return;
+  for(let j = Math.max(0, pageIdx - 3); j <= Math.min(current.pages.length - 1, pageIdx + 3); j++){
+    if(j === pageIdx) continue;
+    const L = current.pages[j].layers[layerIdx];
+    if(!L) continue;
+    const n0 = L.strokes.length;
+    L.strokes = L.strokes.filter(s=> !(s.seam && ids.has(s.seam)));
+    if(L.strokes.length !== n0) redrawLayerCanvas(j, layerIdx);
+  }
+}
+// 지우개를 대는 순간: 이웃 페이지도 바뀔 수 있으니 되돌리기 기록에 함께 담음
+function seamEraserHistory(pageIdx, layerIdx){
+  if(!isSeamless()) return;
+  const top = history[history.length - 1];
+  if(!top || top.pageIdx !== pageIdx) return;
+  for(let j = Math.max(0, pageIdx - 3); j <= Math.min(current.pages.length - 1, pageIdx + 3); j++){
+    if(j === pageIdx || !current.pages[j].layers[layerIdx]) continue;
+    if(current.pages[j].layers[layerIdx].strokes.some(s=> s.seam)) (top.also = top.also || []).push(snapshotLayer(j, layerIdx));
+  }
 }
 
 /* ================= Pointer drawing ================= */
@@ -5130,6 +5236,9 @@ function onPointerDown(e){
   // 지우개는 글상자(개체)도 지우므로 개체 목록까지 담은 스냅샷이 필요함
   pushHistory(activeAction==='eraser' ? snapshotPage(activePageIdx)
                                       : snapshotLayer(activePageIdx, activeLayerIdx));
+  if(activeAction==='eraser') seamEraserHistory(activePageIdx, activeLayerIdx);
+  else if(activeAction==='pen' || activeAction==='pencil') seamPrepareLive();
+  else seamLive = null;
 
   if(activeAction==='pen'){
     currentStroke = { type:'pen', color, size, points:[{x,y,p:Math.round((e.pressure||0.5)*100)/100}] };
@@ -5271,6 +5380,7 @@ function onPointerMove(e){
     for(const ev of coalescedOf(e)){
       if(!pushStrokePoint(currentStroke, ev)) continue;
       strokeQuadSegment(strokeCtx, pts, pts.length-1, color, size, false);
+      if(seamLive) seamMirrorSegment(pts, pts.length-1, 'pen');
     }
     if(INK_LAB) drawPrediction(e);
   } else if(activeAction==='pencil' && currentStroke){
@@ -5279,6 +5389,7 @@ function onPointerMove(e){
     for(const ev of coalescedOf(e)){
       if(!pushStrokePoint(currentStroke, ev)) continue;
       pencilQuadSegment(strokeCtx, pts, pts.length-1, size, color, false);
+      if(seamLive) seamMirrorSegment(pts, pts.length-1, 'pencil');
     }
     strokeCtx.restore();
   } else if(activeAction==='highlight' && currentStroke){
@@ -5380,6 +5491,7 @@ function onPointerUp(e){
   if((activeAction==='pen' || activeAction==='pencil' || activeAction==='highlight') && currentStroke){
     finishStrokeTail(currentStroke); // 마지막 점까지 꼬리 채우기 (위 주석 참고)
     layer.strokes.push(currentStroke);
+    seamCommitStroke(currentStroke, activePageIdx, activeLayerIdx); // 이면지 무한노트: 경계를 넘은 획은 이웃 페이지에도
     currentStroke = null;
     highlightSnapshot = null;
   } else if(activeAction==='mask' && maskStart){
@@ -6230,8 +6342,14 @@ function eraseAt(x,y){
   const layer = current.pages[activePageIdx].layers[activeLayerIdx];
   const R = 14 * RES_SCALE;
   const before = layer.strokes.length;
-  layer.strokes = layer.strokes.filter(s=> !s.points.some(p=> Math.hypot(p.x-x,p.y-y) < R));
+  const seamIds = new Set();
+  layer.strokes = layer.strokes.filter(s=>{
+    const hit = s.points.some(p=> Math.hypot(p.x-x,p.y-y) < R);
+    if(hit && s.seam) seamIds.add(s.seam);
+    return !hit;
+  });
   if(layer.strokes.length !== before) redrawLayerCanvas(activePageIdx, activeLayerIdx);
+  seamEraseCompanions(seamIds, activePageIdx, activeLayerIdx);
   // 글상자도 같이 지움. 필기는 캔버스 px, 글상자는 CSS 페이지 px라 RES_SCALE로 나눠서 비교한다.
   eraseTextsAt(activePageIdx, x/RES_SCALE, y/RES_SCALE, R/RES_SCALE);
 }
@@ -7057,7 +7175,7 @@ async function renderPageThumb(cv, page, idx, W, gen){
   const off = document.createElement('canvas'); off.width = W; off.height = H;
   const ctx = off.getContext('2d');
   const s = W / (page.width * RES_SCALE), cs = W / page.width;
-  ctx.save(); ctx.scale(s, s); paintPageBackground(ctx, page, page.width * RES_SCALE, page.height * RES_SCALE); ctx.restore();
+  ctx.save(); ctx.scale(s, s); paintPageBackground(ctx, page, page.width * RES_SCALE, page.height * RES_SCALE, seamPhase(page)); ctx.restore();
   if(current.type === 'pdf' && pdfDoc){
     try{
       const p = await pdfDoc.getPage(pdfPageNo(page, idx));
@@ -7678,7 +7796,13 @@ document.getElementById('btn-zoom-out').onclick = ()=>{ zoom = Math.max(0.4, zoo
 // 되돌리기·다시하기가 공통으로 쓰는 적용 함수.
 // snap을 데이터와 화면에 반영하고, 그 '직전 상태'를 담은 반대 방향 기록을 돌려준다(못 하면 null).
 // snap 종류: (기본) 한 레이어 / imageGeom = 이미지 위치까지 / allLayers·objects = 페이지 통째(붙여넣기·잘라내기)
+// snap.also: 같이 되돌릴 다른 페이지 기록(이면지 무한노트에서 경계를 넘은 획·지우개). 되살릴 때도 짝을 맞춰 inverse.also를 만든다
 function applyHistorySnap(snap){
+  const inverse = applyHistorySnapOne(snap);
+  if(inverse && snap.also && snap.also.length) inverse.also = snap.also.map(applyHistorySnapOne).filter(Boolean);
+  return inverse;
+}
+function applyHistorySnapOne(snap){
   const page = current && current.pages[snap.pageIdx];
   if(!page) return null;
   const wide = !!(snap.allLayers || snap.objects);
@@ -7937,7 +8061,7 @@ function updateThumbnailSoon(){
    - 파일 앞 2KB만 Range로 받아 확인하므로 데이터를 거의 안 씀(서버가 Range를 무시해도 동작은 함)
    - 캐시를 확실히 피하려고 일회용 ?nc= 를 붙여서 받음(브라우저가 그 주소를 캐시해도 다음엔 다른 번호라 무해)
    - GitHub Pages는 max-age=600이라 그냥 둬도 10분 뒤엔 새 파일을 받지만, 그걸 기다리지 않고 알려주기 위함 */
-const APP_BUILD = '2026-10-18e';
+const APP_BUILD = '2026-10-18f';
 const UPDATE_RECHECK_MS = 10 * 60 * 1000;
 let updateBannerShown = false, lastUpdateCheck = 0;
 function appBaseUrl(){ return location.pathname.replace(/[^/]*$/, ''); }
