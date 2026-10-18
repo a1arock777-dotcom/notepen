@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>NotePen</title>
-<!-- build: 2026-10-15a (모아보기 이미지: 클립보드에 복사) -->
+<!-- build: 2026-10-18a (이면지 자동 줄 올리기 — Ctrl+M) -->
 <style>
   :root{
     --bg: #f4f3f1;
@@ -2493,7 +2493,7 @@ async function zipBytes(zip, e){
   return new Uint8Array(await zip.file.slice(start, start + e.csize).arrayBuffer());
 }
 
-const BACKUP_SETTING_KEYS = ['notepen_inkpred','notepen_fs_lock','notepen_overview_cols','notepen_folders','notepen_note_order','notepen_note_pins','notepen_note_favs','notepen_scratch_note','notepen_eraser_mode','notepen_hotkeys','notepen_text_style','notepen_penhold'];
+const BACKUP_SETTING_KEYS = ['notepen_inkpred','notepen_autolift','notepen_fs_lock','notepen_overview_cols','notepen_folders','notepen_note_order','notepen_note_pins','notepen_note_favs','notepen_scratch_note','notepen_eraser_mode','notepen_hotkeys','notepen_text_style','notepen_penhold'];
 
 async function exportBackup(){
   const btn = document.getElementById('backup-export');
@@ -3042,6 +3042,13 @@ document.addEventListener('keydown', (e)=>{
      && !hotkeyInputBusy() && !hotkeyPopupOpen()){
     e.preventDefault();
     toggleInkPred();
+    return;
+  }
+  // Ctrl+M : 이면지 자동 줄 올리기 켜기/끄기
+  if((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && (e.key || '').toLowerCase() === 'm'
+     && !hotkeyInputBusy() && !hotkeyPopupOpen()){
+    e.preventDefault();
+    toggleAutoLift();
     return;
   }
   // 올가미 선택 복사·잘라내기·붙여넣기 (키보드를 쓸 때만; 입력칸에 있을 땐 브라우저 기본 동작이 우선)
@@ -3619,6 +3626,70 @@ function updateInkPredBadge(){
   }
   if(INK_LAB){ if(!inkPredBadge.isConnected && document.body) document.body.appendChild(inkPredBadge); }
   else if(inkPredBadge.isConnected) inkPredBadge.remove();
+}
+/* ---------- 이면지 자동 줄 올리기 (2026-10-18) ----------
+   팔을 옮기지 않고 늘 화면 위쪽에서 쓰도록: 이면지 노트에서 화면 위 45%(AUTOLIFT_LINE)보다 아래에 쓰고
+   펜을 뗀 채 1초(AUTOLIFT_IDLE_MS) 쉬면, 방금 쓴 줄의 아래 끝이 화면 위 15%(AUTOLIFT_TARGET)에 오도록 부드럽게 올림.
+   쓰는 동안(1초 안에 다시 펜을 대면)은 움직이지 않음. Ctrl+M으로 켜고 끔(기기별 notepen_autolift, '0'일 때만 끔). */
+const AUTOLIFT_KEY = 'notepen_autolift', AUTOLIFT_LINE = 0.45, AUTOLIFT_TARGET = 0.15, AUTOLIFT_IDLE_MS = 1000, AUTOLIFT_ANIM_MS = 280;
+let autoLiftOn = true;
+try{ autoLiftOn = localStorage.getItem(AUTOLIFT_KEY) !== '0'; }catch(e){}
+let autoLiftTimer = null, autoLiftGroupBottom = null, autoLiftStrokeBottom = null, autoLiftAnim = null;
+function toggleAutoLift(){
+  autoLiftOn = !autoLiftOn;
+  try{ localStorage.setItem(AUTOLIFT_KEY, autoLiftOn ? '1' : '0'); }catch(e){}
+  clearTimeout(autoLiftTimer); autoLiftGroupBottom = null;
+  toast(autoLiftOn ? '이면지 자동 줄 올리기 켬 — 아래쪽에 쓰고 1초 쉬면 위로 올라가요 (Ctrl+M으로 끄기)' : '이면지 자동 줄 올리기 끔 (Ctrl+M으로 다시 켜기)');
+}
+function autoLiftActive(){
+  return autoLiftOn && current && current.id === getScratchId() && inNoteView() && !(typeof ovOpen !== 'undefined' && ovOpen);
+}
+document.addEventListener('pointerdown', (e)=>{
+  if(e.pointerType !== 'pen') return;
+  clearTimeout(autoLiftTimer); autoLiftTimer = null; // 이어 쓰는 중 — 올리지 않음
+  autoLiftStrokeBottom = (e.target && e.target.closest && e.target.closest('#page-stack')) ? e.clientY : null;
+}, true);
+document.addEventListener('pointermove', (e)=>{
+  if(e.pointerType !== 'pen' || !e.buttons || autoLiftStrokeBottom === null) return;
+  if(e.clientY > autoLiftStrokeBottom) autoLiftStrokeBottom = e.clientY;
+}, {capture:true, passive:true});
+document.addEventListener('pointerup', (e)=>{
+  if(e.pointerType !== 'pen' || autoLiftStrokeBottom === null) return;
+  const bottom = Math.max(autoLiftStrokeBottom, e.clientY);
+  autoLiftStrokeBottom = null;
+  // 필기 도구로 그은 획만(지우개·이동·올가미·도형 등은 제외). 캡처 단계라 onPointerUp보다 먼저 돌아 activeAction이 아직 남아 있음
+  if(!autoLiftActive() || !['pen','pencil','highlight'].includes(activeAction)) return;
+  autoLiftGroupBottom = (autoLiftGroupBottom === null) ? bottom : Math.max(autoLiftGroupBottom, bottom);
+  clearTimeout(autoLiftTimer);
+  autoLiftTimer = setTimeout(runAutoLift, AUTOLIFT_IDLE_MS);
+}, true);
+function runAutoLift(){
+  autoLiftTimer = null;
+  const bottom = autoLiftGroupBottom; autoLiftGroupBottom = null;
+  if(bottom === null || !autoLiftActive() || drawing || pinchActive) return;
+  if(editingText || selection) return; // 글상자 편집·올가미 선택 중엔 화면을 움직이지 않음
+  const wr = wrapEl.getBoundingClientRect();
+  if(bottom < wr.top + wr.height * AUTOLIFT_LINE) return; // 아직 위쪽에서 쓰는 중
+  let delta = Math.round(bottom - (wr.top + wr.height * AUTOLIFT_TARGET));
+  if(delta <= 0) return;
+  // 아래 공간이 모자라면 빈 페이지를 먼저 이어 붙임(이면지 전용)
+  if(wrapEl.scrollTop + delta > wrapEl.scrollHeight - wrapEl.clientHeight && current.type !== 'pdf'){
+    current.pages.push(makeBlankPage(current.bgColor, current.bgLined));
+    appendPageBlock(current.pages.length - 1);
+    updatePageIndicatorDisplay();
+    scheduleSave();
+  }
+  delta = Math.min(delta, Math.max(0, wrapEl.scrollHeight - wrapEl.clientHeight - wrapEl.scrollTop));
+  if(delta <= 0) return;
+  const from = wrapEl.scrollTop, to = from + delta, t0 = performance.now();
+  cancelAnimationFrame(autoLiftAnim);
+  const step = (now)=>{
+    if(drawing){ wrapEl.scrollTop = to; autoLiftAnim = null; return; } // 그새 다시 쓰기 시작하면 바로 끝 위치로
+    const k = Math.min(1, (now - t0) / AUTOLIFT_ANIM_MS), ease = 1 - Math.pow(1 - k, 3);
+    wrapEl.scrollTop = from + delta * ease;
+    if(k < 1) autoLiftAnim = requestAnimationFrame(step); else autoLiftAnim = null;
+  };
+  autoLiftAnim = requestAnimationFrame(step);
 }
 function toggleInkPred(){
   INK_LAB = !INK_LAB;
@@ -7829,7 +7900,7 @@ function updateThumbnailSoon(){
    - 파일 앞 2KB만 Range로 받아 확인하므로 데이터를 거의 안 씀(서버가 Range를 무시해도 동작은 함)
    - 캐시를 확실히 피하려고 일회용 ?nc= 를 붙여서 받음(브라우저가 그 주소를 캐시해도 다음엔 다른 번호라 무해)
    - GitHub Pages는 max-age=600이라 그냥 둬도 10분 뒤엔 새 파일을 받지만, 그걸 기다리지 않고 알려주기 위함 */
-const APP_BUILD = '2026-10-15a';
+const APP_BUILD = '2026-10-18a';
 const UPDATE_RECHECK_MS = 10 * 60 * 1000;
 let updateBannerShown = false, lastUpdateCheck = 0;
 function appBaseUrl(){ return location.pathname.replace(/[^/]*$/, ''); }
