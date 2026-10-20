@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>NotePen</title>
-<!-- build: 2026-10-18f (이면지 무한노트: 페이지 경계 없이 이어짐) -->
+<!-- build: 2026-10-21a (펜 끊김 줄이기 + 펜 멈춤 기록) -->
 <style>
   :root{
     --bg: #f4f3f1;
@@ -959,6 +959,11 @@
     <div class="modal">
       <h3>📖 단축키 설명서</h3>
       <div id="guide-body"><div class="guide-sec">⌨️ 키보드 — 어디서나</div><div class="guide-row"><div class="guide-k"><kbd>Ctrl</kbd> + <kbd>Q</kbd></div><div class="guide-d">펜으로 꾹 눌러 글상자 만들기 켜기/끄기</div></div><div class="guide-row"><div class="guide-k"><kbd>Ctrl</kbd> + <kbd>B</kbd></div><div class="guide-d">펜 예측(필기 끝을 미리 그려 덜 늦어 보이게) 켜기/끄기</div></div><div class="guide-row"><div class="guide-k"><kbd>Ctrl</kbd> + <kbd>M</kbd></div><div class="guide-d">이면지 자동 줄 올리기 켜기/끄기 (한 줄 쓰고 1초 쉬면 그 줄이 화면 위 15% 자리로 올라옴 — 매 줄 같은 높이에서 씀)</div></div><div class="guide-row"><div class="guide-k"><kbd>1</kbd> ~ <kbd>0</kbd></div><div class="guide-d">번호에 지정해 둔 노트 바로 열기 (지정은 라이브러리의 키보드 모양 버튼)</div></div><div class="guide-row"><div class="guide-k"><kbd>Tab</kbd></div><div class="guide-d">바로 전에 보던 노트로 돌아가기</div></div><div class="guide-sec">✂️ 키보드 — 노트 화면 (올가미 선택)</div><div class="guide-row"><div class="guide-k"><kbd>Ctrl</kbd> + <kbd>C</kbd></div><div class="guide-d">올가미로 고른 필기 복사</div></div><div class="guide-row"><div class="guide-k"><kbd>Ctrl</kbd> + <kbd>X</kbd></div><div class="guide-d">올가미로 고른 필기 잘라내기</div></div><div class="guide-row"><div class="guide-k"><kbd>Ctrl</kbd> + <kbd>V</kbd></div><div class="guide-d">붙여넣기 → 놓을 자리를 펜으로 탭</div></div><div class="guide-sec">🔤 키보드 — 글상자</div><div class="guide-row"><div class="guide-k"><kbd>Enter</kbd> / <kbd>Esc</kbd></div><div class="guide-d">글상자를 고른 상태: 선택 풀기 (배경에 박힘)</div></div><div class="guide-row"><div class="guide-k"><kbd>Delete</kbd> / <kbd>Backspace</kbd></div><div class="guide-d">고른 글상자 통째로 지우기 (되돌리기로 복구 가능)</div></div><div class="guide-row"><div class="guide-k"><kbd>F2</kbd></div><div class="guide-d">고른 글상자 글자 고치기 (두 번 탭과 같음)</div></div><div class="guide-row"><div class="guide-k"><kbd>Enter</kbd></div><div class="guide-d">입력 중: 입력 마치기</div></div><div class="guide-row"><div class="guide-k"><kbd>Shift</kbd> + <kbd>Enter</kbd></div><div class="guide-d">입력 중: 줄 바꾸기</div></div><div class="guide-row"><div class="guide-k"><kbd>Esc</kbd></div><div class="guide-d">입력 중: 입력 마치기</div></div><div class="guide-sec">▦ 키보드 — 페이지 모아보기 · 라이브러리</div><div class="guide-row"><div class="guide-k"><kbd>Esc</kbd></div><div class="guide-d">모아보기: 내보내기 창 → 붙여넣기 → 선택 → 모아보기 순서로 한 단계씩 닫기</div></div><div class="guide-row"><div class="guide-k"><kbd>Ctrl</kbd> + 휠</div><div class="guide-d">모아보기: 한 줄에 보이는 페이지 수 조절</div></div><div class="guide-row"><div class="guide-k"><kbd>Esc</kbd> / <kbd>Enter</kbd></div><div class="guide-d">라이브러리 검색칸: 검색어 지우기 / 입력 마치기</div></div><div class="guide-sec">✍️ 펜 동작</div><div class="guide-row"><div class="guide-k">펜 꾹 누르기 (0.45초)</div><div class="guide-d">그 자리에 글상자 만들기 (Ctrl+Q로 끄고 켬)</div></div><div class="guide-row"><div class="guide-k">펜 지우개 끝</div><div class="guide-d">도구와 상관없이 항상 지우기</div></div><div class="guide-row"><div class="guide-k">펜을 아이콘 위에 잠시</div><div class="guide-d">그 아이콘 설명 보기</div></div><div class="guide-sec">👆 손가락 동작</div><div class="guide-row"><div class="guide-k">한 손가락 끌기</div><div class="guide-d">화면 이동 (스크롤)</div></div><div class="guide-row"><div class="guide-k">두 손가락 벌리기/오므리기</div><div class="guide-d">확대 · 축소</div></div><div class="guide-row"><div class="guide-k">한 손가락 두 번 톡톡</div><div class="guide-d">페이지 폭에 맞추기 ↔ 원래 배율</div></div><div class="guide-row"><div class="guide-k">두 손가락 톡</div><div class="guide-d">되돌리기 (Ctrl+Z와 같음)</div></div><div class="guide-sec">⏱️ 꾹 누르는 버튼들</div><div class="guide-row"><div class="guide-k">펜 버튼 꾹</div><div class="guide-d">이 노트의 기본 펜(색·굵기) 정하기 — 노트를 열 때 적용</div></div><div class="guide-row"><div class="guide-k">색깔 칸 3초 꾹</div><div class="guide-d">이 노트의 "쉴 때 돌아갈 색" 정하기 — 5초 쉬면 그 색으로 복귀</div></div><div class="guide-row"><div class="guide-k">지우개 버튼 0.45초 꾹</div><div class="guide-d">지우개 방식 고르기 (짧게 탭하면 지금 방식으로 지움)</div></div><div class="guide-row"><div class="guide-k">전체화면 버튼 0.6초 꾹</div><div class="guide-d">전체화면 고정/해제 (🔒 표시, 고정 중엔 짧게 눌러도 안 나감)</div></div><div class="guide-row"><div class="guide-k">"이" 버튼 꾹</div><div class="guide-d">이면지로 쓸 노트 다시 고르기</div></div><div class="guide-sec">▦ 페이지 모아보기 (제목줄 ▦ 버튼)</div><div class="guide-row"><div class="guide-k">페이지 탭</div><div class="guide-d">그 페이지로 이동</div></div><div class="guide-row"><div class="guide-k">페이지 꾹 누르기</div><div class="guide-d">선택 모드 → 여러 장 고르기</div></div><div class="guide-row"><div class="guide-k">고른 페이지 끌기</div><div class="guide-d">원하는 자리로 옮기기</div></div><div class="guide-row"><div class="guide-k">선택 후 아래 버튼</div><div class="guide-d">삭제(되돌리기 가능) · 복사해 붙이기 · 이미지로 내보내기/클립보드 복사</div></div><div class="guide-row"><div class="guide-k">두 손가락 벌리기/오므리기</div><div class="guide-d">한 줄에 보이는 페이지 수 조절</div></div><div class="guide-note">※ 키보드 단축키는 블루투스·북커버 키보드를 연결했을 때 써요. 삼성 인터넷은 Ctrl+E를 브라우저가 먼저 가져가서 앱에서 쓰지 않아요.</div></div>
+      <div style="display:flex; gap:8px; margin-top:8px;">
+        <button class="opt-btn" id="stall-log-btn" style="margin:0; justify-content:center;">⏱ 펜 멈춤 기록</button>
+        <button class="opt-btn" id="stall-log-clear" style="margin:0; justify-content:center; display:none;">기록 지우기</button>
+      </div>
+      <div id="stall-log" style="display:none; max-height:40vh; overflow-y:auto; margin-top:6px;"></div>
       <button class="modal-close" id="modal-guide-close">닫기</button>
     </div>
   </div>
@@ -1327,13 +1332,15 @@ async function dbPut(nb, opts){
     if(buf || nb.pdfInStore) rec.pdfInStore = true;
     const ok = await new Promise((resolve,reject)=>{
       const tx = db.transaction(needPdf ? [STORE, PDF_STORE] : [STORE],'readwrite');
-      tx.objectStore(STORE).put(rec);
+      const tPut = performance.now();
+      tx.objectStore(STORE).put(rec); // 노트 전체를 복제하는 동기 구간 — 큰 노트에서 화면이 멈추는 주원인
+      stallMark(opts.reason || '저장', tPut);
       if(needPdf) tx.objectStore(PDF_STORE).put({id: nb.id, buf});
       tx.oncomplete = ()=>{ if(needPdf) pdfWritten.set(nb.id, buf); resolve(true); };
       tx.onerror = ()=>reject(tx.error);
     });
     if(buf) nb.pdfInStore = true;
-    if(!opts.skipSync) syncPushNotebook(nb); // 클라우드 동기화가 설정/로그인 안 되어 있으면 내부에서 그냥 조용히 무시됨
+    if(!opts.skipSync){ if(opts.deferSync) syncPushSoon(nb); else syncPushNotebook(nb); } // 클라우드 동기화가 설정/로그인 안 되어 있으면 내부에서 그냥 조용히 무시됨
     return ok;
   }catch(e){ console.error('dbPut failed', e); return false; }
 }
@@ -1436,6 +1443,37 @@ document.getElementById('btn-note-sync').onclick = ()=>{ if(current) toggleNoteS
 
 const oversizeWarned = new Set(); // '용량이 너무 커서 동기화 제외' 안내는 노트마다 한 번만
 /* 로컬에 노트가 저장될 때마다 호출됨. 로그인 안 되어 있으면 그냥 무시. */
+function countInkPoints(pages){
+  let n = 0;
+  for(const p of pages || []) for(const L of p.layers || []) for(const st of L.strokes || []) n += (st.points ? st.points.length : 0);
+  return n;
+}
+/* 자동 저장 때의 클라우드 업로드는 바로 하지 않고 10초 더 쉬었을 때 한 번만 (2026-10-21).
+   업로드 준비(노트 전체를 문자열로 바꾸기)도 큰 노트에서 펜을 멈추게 하므로 필기 중엔 미룸.
+   앱이 가려지거나 다른 노트 저장이 끼면 바로 올림(flushSyncPush). 너무 오래(2분) 밀리면 그냥 올림. */
+const SYNC_IDLE_MS = 10000, SYNC_MAX_WAIT_MS = 120000;
+let syncPushTimer = null, syncPushNb = null, syncPushSince = 0;
+function syncPushSoon(nb){
+  if(!fbUser || !fbDb) return;
+  if(syncPushNb && syncPushNb !== nb) flushSyncPush();
+  if(!syncPushNb) syncPushSince = Date.now();
+  syncPushNb = nb;
+  clearTimeout(syncPushTimer);
+  syncPushTimer = setTimeout(runSyncPush, SYNC_IDLE_MS);
+}
+function runSyncPush(){
+  syncPushTimer = null;
+  if(!syncPushNb) return;
+  const busy = drawing || (Date.now() - lastEditAt) < 3000;
+  if(busy && (Date.now() - syncPushSince) < SYNC_MAX_WAIT_MS){ syncPushTimer = setTimeout(runSyncPush, 3000); return; }
+  flushSyncPush();
+}
+function flushSyncPush(){
+  if(!syncPushNb) return;
+  clearTimeout(syncPushTimer); syncPushTimer = null;
+  const nb = syncPushNb; syncPushNb = null;
+  syncPushNotebook(nb);
+}
 async function syncPushNotebook(nb){
   if(!fbUser || !fbDb) return;
   if(nb.syncOff) return; // 사용자가 이 노트를 동기화에서 제외함
@@ -1447,7 +1485,14 @@ async function syncPushNotebook(nb){
       await dbPut(nb, {skipSync:true}); // storage 경로를 로컬에도 기록 (재업로드 방지)
     }
     // 동기화 한도를 넘는 노트는 어차피 안 올라가므로, 큰 문자열을 또 만들지 않고 여기서 멈춤(필기 중 멈춤 줄이기)
+    // 점 개수로 최소 크기를 어림해 확실히 넘는 노트는 문자열을 만들지도 않음(점 하나는 JSON으로 최소 18자 이상)
+    if(countInkPoints(nb.pages) * 18 > 900000){
+      if(!oversizeWarned.has(nb.id)){ oversizeWarned.add(nb.id); toast('이 노트는 용량이 너무 커서 동기화에서 제외돼요.'); }
+      return;
+    }
+    const tJson = performance.now();
     const pagesJson = JSON.stringify(nb.pages);
+    stallMark('동기화 준비', tJson);
     if(pagesJson.length > 900000){
       if(!oversizeWarned.has(nb.id)){ oversizeWarned.add(nb.id); toast('이 노트는 용량이 너무 커서 동기화에서 제외돼요.'); }
       return;
@@ -1669,6 +1714,16 @@ function onFirebaseAuthReady(){
   });
   document.getElementById('modal-guide-close').addEventListener('click', close);
   m.addEventListener('click', (e)=>{ if(e.target === m) close(); });
+  document.getElementById('stall-log-btn').addEventListener('click', ()=>{
+    const box = document.getElementById('stall-log'), clr = document.getElementById('stall-log-clear');
+    const show = box.style.display === 'none';
+    box.style.display = show ? 'block' : 'none'; clr.style.display = show ? '' : 'none';
+    if(show){ renderStallLog(); box.scrollIntoView({block:'nearest'}); }
+  });
+  document.getElementById('stall-log-clear').addEventListener('click', ()=>{
+    try{ localStorage.removeItem(STALL_LOG_KEY); }catch(e){}
+    renderStallLog(); toast('펜 멈춤 기록을 지웠어요');
+  });
   document.addEventListener('keydown', (e)=>{
     if(e.key === 'Escape' && m.style.display !== 'none'){ e.preventDefault(); close(); }
   });
@@ -3263,6 +3318,10 @@ function createPlaceholderBlock(idx){
 }
 function buildBlockContent(block, idx){
   if(block.dataset.built === '1') return;
+  const tBuild = performance.now();
+  try{ buildBlockContentInner(block, idx); } finally { stallMark('페이지 그리기', tBuild); }
+}
+function buildBlockContentInner(block, idx){
   block.dataset.built = '1';
   block.style.background = '';
   block.innerHTML = '';
@@ -3882,7 +3941,10 @@ function drawMask(ctx, m){
 }
 function redrawLayerCanvas(pageIdx, layerIdx){
   const c = stackEl.querySelector(`canvas[data-page-idx="${pageIdx}"][data-layer-idx="${layerIdx}"]`);
-  if(c) drawLayer(c.getContext('2d'), current.pages[pageIdx].layers[layerIdx]);
+  if(!c) return;
+  const t0 = performance.now();
+  drawLayer(c.getContext('2d'), current.pages[pageIdx].layers[layerIdx]);
+  stallMark('필기 다시 그리기', t0);
 }
 
 /* ---------- 이면지 무한노트 (2026-10-18f) ----------
@@ -7990,6 +8052,90 @@ document.getElementById('layer-del').onclick = ()=>{
   scheduleSave();
 };
 
+/* ================= 펜 멈춤 기록 (2026-10-21) =================
+   "가끔 펜이 안 따라오다 한 번에 그려진다" 원인을 실기기에서 숫자로 보려고 넣음.
+   펜 이벤트가 실제로 일어난 시각(e.timeStamp)과 처리된 시각의 차이가 0.1초를 넘으면 = 그동안 화면이 붙잡혀 있었던 것.
+   그 사이에 돌았던 무거운 작업(저장·페이지 그리기 등 stallMark로 표시한 구간)을 원인으로 함께 기록한다.
+   기록은 이 기기의 localStorage(notepen_stall_log)에만, 최근 60건. 📖 설명서 아래 [펜 멈춤 기록]에서 봄. */
+const STALL_LOG_KEY = 'notepen_stall_log', STALL_MIN_MS = 100;
+var stallSpans = [];   // {name, t0, t1} 최근 무거운 작업 구간
+function stallMark(name, t0){
+  const t1 = performance.now();
+  if(t1 - t0 < 30) return;
+  stallSpans.push({name, t0, t1});
+  if(stallSpans.length > 40) stallSpans.shift();
+}
+let stallOpen = null; // 지금 이어지고 있는 한 번의 멈춤(연달아 늦게 온 이벤트를 하나로 묶음)
+function stallCause(a, b){
+  const names = [];
+  stallSpans.forEach(sp=>{ if(sp.t1 >= a - 5 && sp.t0 <= b + 5){ const ms = Math.round(sp.t1 - sp.t0); names.push(sp.name + ' ' + ms + 'ms'); } });
+  return names.length ? names.join(' + ') : '기타(브라우저·메모리 정리 등)';
+}
+function stallLoad(){ try{ return JSON.parse(localStorage.getItem(STALL_LOG_KEY) || '[]') || []; }catch(e){ return []; } }
+function stallSave(list){ try{ localStorage.setItem(STALL_LOG_KEY, JSON.stringify(list.slice(-60))); }catch(e){} }
+function stallNote(e){
+  if(e.pointerType !== 'pen') return;
+  const now = performance.now();
+  const lag = now - e.timeStamp;
+  if(!(lag >= STALL_MIN_MS) || lag > 10000) return;
+  if(stallOpen && e.timeStamp < stallOpen.until + 20){ // 같은 멈춤 동안 쌓여 있던 이벤트(멈춤이 끝나기 전에 생긴 것)
+    stallOpen.ms = Math.max(stallOpen.ms, Math.round(lag)); stallOpen.until = now;
+    stallOpen.cause = stallCause(stallOpen.from, now);
+    const list = stallLoad(); if(list.length){ list[list.length-1] = Object.assign({}, stallOpen.rec, {ms: stallOpen.ms, cause: stallOpen.cause}); stallSave(list); }
+    return;
+  }
+  const rec = { at: Date.now(), ms: Math.round(lag), ev: e.type === 'pointerdown' ? '펜 대는 순간' : '긋는 중',
+    cause: stallCause(e.timeStamp, now), note: current ? (current.title || '') : '', pages: current ? current.pages.length : 0 };
+  stallOpen = { from: e.timeStamp, until: now, ms: rec.ms, cause: rec.cause, rec };
+  const list = stallLoad(); list.push(rec); stallSave(list);
+}
+document.addEventListener('pointerdown', stallNote, true);
+document.addEventListener('pointermove', stallNote, {capture:true, passive:true});
+function renderStallLog(){
+  const box = document.getElementById('stall-log');
+  if(!box) return;
+  const list = stallLoad().slice().reverse();
+  if(!list.length){ box.innerHTML = '<div class="guide-note">아직 기록이 없어요. 펜이 0.1초 넘게 멈추면 여기에 쌓여요.</div>'; return; }
+  const pad = n=> String(n).padStart(2,'0');
+  box.innerHTML = list.map(r=>{
+    const d = new Date(r.at);
+    const when = (d.getMonth()+1) + '/' + d.getDate() + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds());
+    const esc = t=> String(t).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+    return '<div class="guide-row"><div class="guide-k">' + when + '<br><b>' + (r.ms/1000).toFixed(2) + '초</b> · ' + esc(r.ev) + '</div><div class="guide-d">' + esc(r.cause) + '<br>' + esc(r.note) + ' (' + r.pages + '쪽)</div></div>';
+  }).join('');
+}
+/* 펜을 뗀 한가한 틈에 곧 필요한 페이지를 미리 그려둠 (2026-10-21).
+   자동 줄 올리기·스크롤로 아래 페이지가 화면 근처에 들어오는 순간 그리면(한 쪽에 0.07~0.15초) 다시 쓰기 시작한 펜과 겹쳤음.
+   한 번에 한 쪽만 그리고, 그 사이 펜이 닿으면 멈춤. 이면지는 빈 페이지도 미리 붙여 둠. */
+let idlePrepTimer = null;
+const IDLE_PREP_MS = 450;
+function scheduleIdlePrep(){ clearTimeout(idlePrepTimer); idlePrepTimer = setTimeout(runIdlePrep, IDLE_PREP_MS); }
+function runIdlePrep(){
+  idlePrepTimer = null;
+  if(!current || !inNoteView() || drawing || pinchActive) return;
+  if(current.id === getScratchId() && current.type !== 'pdf'){
+    const last = current.pages.length - 1;
+    const block = stackEl.querySelector(`.page-block[data-page-idx="${last}"]`);
+    if(block && pageHasContent(current.pages[last])){
+      const wr = wrapEl.getBoundingClientRect();
+      if(block.getBoundingClientRect().top < wr.bottom + wr.height * 1.5){
+        current.pages.push(makeBlankPage(current.bgColor, current.bgLined));
+        appendPageBlock(current.pages.length - 1); // 새 페이지를 바로 그림 — 이번 한가한 틈은 여기까지
+        updatePageIndicatorDisplay();
+        scheduleSave();
+        scheduleIdlePrep();
+        return;
+      }
+    }
+  }
+  for(let j = Math.max(0, curPage - 1); j <= Math.min(current.pages.length - 1, curPage + 2); j++){
+    const b = stackEl.querySelector(`.page-block[data-page-idx="${j}"]`);
+    if(b && b.dataset.built !== '1'){ ensureBlockBuilt(j); scheduleIdlePrep(); return; }
+  }
+}
+document.addEventListener('pointerdown', (e)=>{ if(e.pointerType === 'pen'){ clearTimeout(idlePrepTimer); idlePrepTimer = null; } }, true);
+document.addEventListener('pointerup', (e)=>{ if(e.pointerType === 'pen') scheduleIdlePrep(); }, true);
+
 /* ================= Save ================= */
 /* 자동 저장 시점 (2026-09-30 변경)
    저장(persist)은 노트 전체(모든 쪽의 획 + PDF 원본)를 저장소에 복사하고 동기화용 문자열을 만드는 일이라
@@ -7998,7 +8144,8 @@ document.getElementById('layer-del').onclick = ()=>{
    → 손을 SAVE_IDLE_MS 동안 쉬었을 때만 저장하고, 긋는 중이면 미룬다. 대신 노트를 떠나거나
      앱이 가려지는 순간엔 곧바로 저장(flushSave)해서 잃는 게 없게 한다. */
 const SAVE_IDLE_MS = 2500;       // 손을 이만큼 쉬면 저장
-const SAVE_MAX_WAIT_MS = 30000;  // 쉬지 않고 계속 써도 이보다 오래 미루지는 않음
+const SAVE_MAX_WAIT_MS = 60000;  // 쉬지 않고 계속 써도 이보다 오래 미루지는 않음 (10-21: 30초→60초)
+const SAVE_OVERDUE_IDLE_MS = 1200; // 너무 오래 밀렸을 때도 최소 이만큼은 펜을 쉰 틈에 저장 (10-21: 획 끝 0.4초 뒤 → 다음 획 시작과 겹쳐 펜이 멈추던 것)
 let saveTimer = null;
 let saveDirtySince = 0;          // 저장 안 된 변경이 처음 생긴 시각
 function scheduleSave(){
@@ -8006,7 +8153,7 @@ function scheduleSave(){
   if(!saveDirtySince) saveDirtySince = Date.now();
   clearTimeout(saveTimer);
   const overdue = (Date.now() - saveDirtySince) > SAVE_MAX_WAIT_MS;
-  saveTimer = setTimeout(runScheduledSave, overdue ? 400 : SAVE_IDLE_MS);
+  saveTimer = setTimeout(runScheduledSave, overdue ? SAVE_OVERDUE_IDLE_MS : SAVE_IDLE_MS);
 }
 function runScheduledSave(){
   saveTimer = null;
@@ -8020,13 +8167,13 @@ async function flushSave(){
   clearTimeout(saveTimer); saveTimer = null;
   await persist(true);
 }
-document.addEventListener('visibilitychange', ()=>{ if(document.hidden) flushSave(); });
-window.addEventListener('pagehide', ()=>{ flushSave(); });
+document.addEventListener('visibilitychange', ()=>{ if(document.hidden){ flushSave().then(flushSyncPush); flushSyncPush(); } });
+window.addEventListener('pagehide', ()=>{ flushSave().then(flushSyncPush); flushSyncPush(); });
 async function persist(silent){
   if(!current) return;
   saveDirtySince = 0;
   current.updatedAt = Date.now();
-  const ok = await dbPut(current);
+  const ok = await dbPut(current, {deferSync:true, reason:'자동 저장(' + current.pages.length + '쪽)'});
   const dot = document.getElementById('save-dot');
   if(ok){ dot.classList.add('show'); setTimeout(()=>dot.classList.remove('show'), 900); }
   else if(!silent) toast('저장에 실패했어요.');
@@ -8035,6 +8182,7 @@ let thumbTimer = null;
 function updateThumbnailSoon(){
   clearTimeout(thumbTimer);
   thumbTimer = setTimeout(()=>{
+    const tThumb = performance.now();
     try{
       const block0 = stackEl.querySelector('.page-block[data-page-idx="0"]');
       if(!block0) return;
@@ -8049,6 +8197,7 @@ function updateThumbnailSoon(){
       });
       current.thumbnail = tmp.toDataURL('image/jpeg', 0.7);
     }catch(err){ /* ignore thumbnail failures */ }
+    stallMark('썸네일', tThumb);
   }, 500);
 }
 
@@ -8061,7 +8210,7 @@ function updateThumbnailSoon(){
    - 파일 앞 2KB만 Range로 받아 확인하므로 데이터를 거의 안 씀(서버가 Range를 무시해도 동작은 함)
    - 캐시를 확실히 피하려고 일회용 ?nc= 를 붙여서 받음(브라우저가 그 주소를 캐시해도 다음엔 다른 번호라 무해)
    - GitHub Pages는 max-age=600이라 그냥 둬도 10분 뒤엔 새 파일을 받지만, 그걸 기다리지 않고 알려주기 위함 */
-const APP_BUILD = '2026-10-18f';
+const APP_BUILD = '2026-10-21a';
 const UPDATE_RECHECK_MS = 10 * 60 * 1000;
 let updateBannerShown = false, lastUpdateCheck = 0;
 function appBaseUrl(){ return location.pathname.replace(/[^/]*$/, ''); }
