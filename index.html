@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>NotePen</title>
-<!-- build: 2026-10-21a (펜 끊김 줄이기 + 펜 멈춤 기록) -->
+<!-- build: 2026-10-22a (이면지: 최근 3쪽만 남기고 위쪽 자동 정리) -->
 <style>
   :root{
     --bg: #f4f3f1;
@@ -958,7 +958,7 @@
   <div class="modal-backdrop" id="modal-guide" style="display:none;">
     <div class="modal">
       <h3>📖 단축키 설명서</h3>
-      <div id="guide-body"><div class="guide-sec">⌨️ 키보드 — 어디서나</div><div class="guide-row"><div class="guide-k"><kbd>Ctrl</kbd> + <kbd>Q</kbd></div><div class="guide-d">펜으로 꾹 눌러 글상자 만들기 켜기/끄기</div></div><div class="guide-row"><div class="guide-k"><kbd>Ctrl</kbd> + <kbd>B</kbd></div><div class="guide-d">펜 예측(필기 끝을 미리 그려 덜 늦어 보이게) 켜기/끄기</div></div><div class="guide-row"><div class="guide-k"><kbd>Ctrl</kbd> + <kbd>M</kbd></div><div class="guide-d">이면지 자동 줄 올리기 켜기/끄기 (한 줄 쓰고 1초 쉬면 그 줄이 화면 위 15% 자리로 올라옴 — 매 줄 같은 높이에서 씀)</div></div><div class="guide-row"><div class="guide-k"><kbd>1</kbd> ~ <kbd>0</kbd></div><div class="guide-d">번호에 지정해 둔 노트 바로 열기 (지정은 라이브러리의 키보드 모양 버튼)</div></div><div class="guide-row"><div class="guide-k"><kbd>Tab</kbd></div><div class="guide-d">바로 전에 보던 노트로 돌아가기</div></div><div class="guide-sec">✂️ 키보드 — 노트 화면 (올가미 선택)</div><div class="guide-row"><div class="guide-k"><kbd>Ctrl</kbd> + <kbd>C</kbd></div><div class="guide-d">올가미로 고른 필기 복사</div></div><div class="guide-row"><div class="guide-k"><kbd>Ctrl</kbd> + <kbd>X</kbd></div><div class="guide-d">올가미로 고른 필기 잘라내기</div></div><div class="guide-row"><div class="guide-k"><kbd>Ctrl</kbd> + <kbd>V</kbd></div><div class="guide-d">붙여넣기 → 놓을 자리를 펜으로 탭</div></div><div class="guide-sec">🔤 키보드 — 글상자</div><div class="guide-row"><div class="guide-k"><kbd>Enter</kbd> / <kbd>Esc</kbd></div><div class="guide-d">글상자를 고른 상태: 선택 풀기 (배경에 박힘)</div></div><div class="guide-row"><div class="guide-k"><kbd>Delete</kbd> / <kbd>Backspace</kbd></div><div class="guide-d">고른 글상자 통째로 지우기 (되돌리기로 복구 가능)</div></div><div class="guide-row"><div class="guide-k"><kbd>F2</kbd></div><div class="guide-d">고른 글상자 글자 고치기 (두 번 탭과 같음)</div></div><div class="guide-row"><div class="guide-k"><kbd>Enter</kbd></div><div class="guide-d">입력 중: 입력 마치기</div></div><div class="guide-row"><div class="guide-k"><kbd>Shift</kbd> + <kbd>Enter</kbd></div><div class="guide-d">입력 중: 줄 바꾸기</div></div><div class="guide-row"><div class="guide-k"><kbd>Esc</kbd></div><div class="guide-d">입력 중: 입력 마치기</div></div><div class="guide-sec">▦ 키보드 — 페이지 모아보기 · 라이브러리</div><div class="guide-row"><div class="guide-k"><kbd>Esc</kbd></div><div class="guide-d">모아보기: 내보내기 창 → 붙여넣기 → 선택 → 모아보기 순서로 한 단계씩 닫기</div></div><div class="guide-row"><div class="guide-k"><kbd>Ctrl</kbd> + 휠</div><div class="guide-d">모아보기: 한 줄에 보이는 페이지 수 조절</div></div><div class="guide-row"><div class="guide-k"><kbd>Esc</kbd> / <kbd>Enter</kbd></div><div class="guide-d">라이브러리 검색칸: 검색어 지우기 / 입력 마치기</div></div><div class="guide-sec">✍️ 펜 동작</div><div class="guide-row"><div class="guide-k">펜 꾹 누르기 (0.45초)</div><div class="guide-d">그 자리에 글상자 만들기 (Ctrl+Q로 끄고 켬)</div></div><div class="guide-row"><div class="guide-k">펜 지우개 끝</div><div class="guide-d">도구와 상관없이 항상 지우기</div></div><div class="guide-row"><div class="guide-k">펜을 아이콘 위에 잠시</div><div class="guide-d">그 아이콘 설명 보기</div></div><div class="guide-sec">👆 손가락 동작</div><div class="guide-row"><div class="guide-k">한 손가락 끌기</div><div class="guide-d">화면 이동 (스크롤)</div></div><div class="guide-row"><div class="guide-k">두 손가락 벌리기/오므리기</div><div class="guide-d">확대 · 축소</div></div><div class="guide-row"><div class="guide-k">한 손가락 두 번 톡톡</div><div class="guide-d">페이지 폭에 맞추기 ↔ 원래 배율</div></div><div class="guide-row"><div class="guide-k">두 손가락 톡</div><div class="guide-d">되돌리기 (Ctrl+Z와 같음)</div></div><div class="guide-sec">⏱️ 꾹 누르는 버튼들</div><div class="guide-row"><div class="guide-k">펜 버튼 꾹</div><div class="guide-d">이 노트의 기본 펜(색·굵기) 정하기 — 노트를 열 때 적용</div></div><div class="guide-row"><div class="guide-k">색깔 칸 3초 꾹</div><div class="guide-d">이 노트의 "쉴 때 돌아갈 색" 정하기 — 5초 쉬면 그 색으로 복귀</div></div><div class="guide-row"><div class="guide-k">지우개 버튼 0.45초 꾹</div><div class="guide-d">지우개 방식 고르기 (짧게 탭하면 지금 방식으로 지움)</div></div><div class="guide-row"><div class="guide-k">전체화면 버튼 0.6초 꾹</div><div class="guide-d">전체화면 고정/해제 (🔒 표시, 고정 중엔 짧게 눌러도 안 나감)</div></div><div class="guide-row"><div class="guide-k">"이" 버튼 꾹</div><div class="guide-d">이면지로 쓸 노트 다시 고르기</div></div><div class="guide-sec">▦ 페이지 모아보기 (제목줄 ▦ 버튼)</div><div class="guide-row"><div class="guide-k">페이지 탭</div><div class="guide-d">그 페이지로 이동</div></div><div class="guide-row"><div class="guide-k">페이지 꾹 누르기</div><div class="guide-d">선택 모드 → 여러 장 고르기</div></div><div class="guide-row"><div class="guide-k">고른 페이지 끌기</div><div class="guide-d">원하는 자리로 옮기기</div></div><div class="guide-row"><div class="guide-k">선택 후 아래 버튼</div><div class="guide-d">삭제(되돌리기 가능) · 복사해 붙이기 · 이미지로 내보내기/클립보드 복사</div></div><div class="guide-row"><div class="guide-k">두 손가락 벌리기/오므리기</div><div class="guide-d">한 줄에 보이는 페이지 수 조절</div></div><div class="guide-note">※ 키보드 단축키는 블루투스·북커버 키보드를 연결했을 때 써요. 삼성 인터넷은 Ctrl+E를 브라우저가 먼저 가져가서 앱에서 쓰지 않아요.</div></div>
+      <div id="guide-body"><div class="guide-sec">⌨️ 키보드 — 어디서나</div><div class="guide-row"><div class="guide-k"><kbd>Ctrl</kbd> + <kbd>Q</kbd></div><div class="guide-d">펜으로 꾹 눌러 글상자 만들기 켜기/끄기</div></div><div class="guide-row"><div class="guide-k"><kbd>Ctrl</kbd> + <kbd>B</kbd></div><div class="guide-d">펜 예측(필기 끝을 미리 그려 덜 늦어 보이게) 켜기/끄기</div></div><div class="guide-row"><div class="guide-k"><kbd>Ctrl</kbd> + <kbd>M</kbd></div><div class="guide-d">이면지 자동 줄 올리기 켜기/끄기 (한 줄 쓰고 1초 쉬면 그 줄이 화면 위 15% 자리로 올라옴 — 매 줄 같은 높이에서 씀). 이면지는 최근 3쪽만 남고 위쪽은 자동으로 지워져요</div></div><div class="guide-row"><div class="guide-k"><kbd>1</kbd> ~ <kbd>0</kbd></div><div class="guide-d">번호에 지정해 둔 노트 바로 열기 (지정은 라이브러리의 키보드 모양 버튼)</div></div><div class="guide-row"><div class="guide-k"><kbd>Tab</kbd></div><div class="guide-d">바로 전에 보던 노트로 돌아가기</div></div><div class="guide-sec">✂️ 키보드 — 노트 화면 (올가미 선택)</div><div class="guide-row"><div class="guide-k"><kbd>Ctrl</kbd> + <kbd>C</kbd></div><div class="guide-d">올가미로 고른 필기 복사</div></div><div class="guide-row"><div class="guide-k"><kbd>Ctrl</kbd> + <kbd>X</kbd></div><div class="guide-d">올가미로 고른 필기 잘라내기</div></div><div class="guide-row"><div class="guide-k"><kbd>Ctrl</kbd> + <kbd>V</kbd></div><div class="guide-d">붙여넣기 → 놓을 자리를 펜으로 탭</div></div><div class="guide-sec">🔤 키보드 — 글상자</div><div class="guide-row"><div class="guide-k"><kbd>Enter</kbd> / <kbd>Esc</kbd></div><div class="guide-d">글상자를 고른 상태: 선택 풀기 (배경에 박힘)</div></div><div class="guide-row"><div class="guide-k"><kbd>Delete</kbd> / <kbd>Backspace</kbd></div><div class="guide-d">고른 글상자 통째로 지우기 (되돌리기로 복구 가능)</div></div><div class="guide-row"><div class="guide-k"><kbd>F2</kbd></div><div class="guide-d">고른 글상자 글자 고치기 (두 번 탭과 같음)</div></div><div class="guide-row"><div class="guide-k"><kbd>Enter</kbd></div><div class="guide-d">입력 중: 입력 마치기</div></div><div class="guide-row"><div class="guide-k"><kbd>Shift</kbd> + <kbd>Enter</kbd></div><div class="guide-d">입력 중: 줄 바꾸기</div></div><div class="guide-row"><div class="guide-k"><kbd>Esc</kbd></div><div class="guide-d">입력 중: 입력 마치기</div></div><div class="guide-sec">▦ 키보드 — 페이지 모아보기 · 라이브러리</div><div class="guide-row"><div class="guide-k"><kbd>Esc</kbd></div><div class="guide-d">모아보기: 내보내기 창 → 붙여넣기 → 선택 → 모아보기 순서로 한 단계씩 닫기</div></div><div class="guide-row"><div class="guide-k"><kbd>Ctrl</kbd> + 휠</div><div class="guide-d">모아보기: 한 줄에 보이는 페이지 수 조절</div></div><div class="guide-row"><div class="guide-k"><kbd>Esc</kbd> / <kbd>Enter</kbd></div><div class="guide-d">라이브러리 검색칸: 검색어 지우기 / 입력 마치기</div></div><div class="guide-sec">✍️ 펜 동작</div><div class="guide-row"><div class="guide-k">펜 꾹 누르기 (0.45초)</div><div class="guide-d">그 자리에 글상자 만들기 (Ctrl+Q로 끄고 켬)</div></div><div class="guide-row"><div class="guide-k">펜 지우개 끝</div><div class="guide-d">도구와 상관없이 항상 지우기</div></div><div class="guide-row"><div class="guide-k">펜을 아이콘 위에 잠시</div><div class="guide-d">그 아이콘 설명 보기</div></div><div class="guide-sec">👆 손가락 동작</div><div class="guide-row"><div class="guide-k">한 손가락 끌기</div><div class="guide-d">화면 이동 (스크롤)</div></div><div class="guide-row"><div class="guide-k">두 손가락 벌리기/오므리기</div><div class="guide-d">확대 · 축소</div></div><div class="guide-row"><div class="guide-k">한 손가락 두 번 톡톡</div><div class="guide-d">페이지 폭에 맞추기 ↔ 원래 배율</div></div><div class="guide-row"><div class="guide-k">두 손가락 톡</div><div class="guide-d">되돌리기 (Ctrl+Z와 같음)</div></div><div class="guide-sec">⏱️ 꾹 누르는 버튼들</div><div class="guide-row"><div class="guide-k">펜 버튼 꾹</div><div class="guide-d">이 노트의 기본 펜(색·굵기) 정하기 — 노트를 열 때 적용</div></div><div class="guide-row"><div class="guide-k">색깔 칸 3초 꾹</div><div class="guide-d">이 노트의 "쉴 때 돌아갈 색" 정하기 — 5초 쉬면 그 색으로 복귀</div></div><div class="guide-row"><div class="guide-k">지우개 버튼 0.45초 꾹</div><div class="guide-d">지우개 방식 고르기 (짧게 탭하면 지금 방식으로 지움)</div></div><div class="guide-row"><div class="guide-k">전체화면 버튼 0.6초 꾹</div><div class="guide-d">전체화면 고정/해제 (🔒 표시, 고정 중엔 짧게 눌러도 안 나감)</div></div><div class="guide-row"><div class="guide-k">"이" 버튼 꾹</div><div class="guide-d">이면지로 쓸 노트 다시 고르기</div></div><div class="guide-sec">▦ 페이지 모아보기 (제목줄 ▦ 버튼)</div><div class="guide-row"><div class="guide-k">페이지 탭</div><div class="guide-d">그 페이지로 이동</div></div><div class="guide-row"><div class="guide-k">페이지 꾹 누르기</div><div class="guide-d">선택 모드 → 여러 장 고르기</div></div><div class="guide-row"><div class="guide-k">고른 페이지 끌기</div><div class="guide-d">원하는 자리로 옮기기</div></div><div class="guide-row"><div class="guide-k">선택 후 아래 버튼</div><div class="guide-d">삭제(되돌리기 가능) · 복사해 붙이기 · 이미지로 내보내기/클립보드 복사</div></div><div class="guide-row"><div class="guide-k">두 손가락 벌리기/오므리기</div><div class="guide-d">한 줄에 보이는 페이지 수 조절</div></div><div class="guide-note">※ 키보드 단축키는 블루투스·북커버 키보드를 연결했을 때 써요. 삼성 인터넷은 Ctrl+E를 브라우저가 먼저 가져가서 앱에서 쓰지 않아요.</div></div>
       <div style="display:flex; gap:8px; margin-top:8px;">
         <button class="opt-btn" id="stall-log-btn" style="margin:0; justify-content:center;">⏱ 펜 멈춤 기록</button>
         <button class="opt-btn" id="stall-log-clear" style="margin:0; justify-content:center; display:none;">기록 지우기</button>
@@ -3482,6 +3482,7 @@ function renderAllPages(){
   updatePageIndicatorDisplay();
   attachPointerHandlers();
   setupLazyBuildObserver();
+  if(current.id === getScratchId() && current.type !== 'pdf') scheduleIdlePrep(); // 이면지는 열자마자도 한가할 때 오래된 위쪽 정리
   if(current.pages.length) updateThumbnailSoon();
 }
 function updatePageIndicatorDisplay(){
@@ -3956,9 +3957,64 @@ function isSeamless(){
 }
 function seamPhase(page){
   if(!isSeamless() || !page.lined) return 0;
-  let off = 0;
-  for(const p of current.pages){ if(p === page) return off * RES_SCALE; off += p.height; }
-  return 0;
+  // 위쪽 페이지를 정리(trimScratchPages)하면 맨 앞 페이지에 linePhase를 남겨 두므로, 가장 가까운 앞쪽 기준점부터 높이를 더함
+  const idx = current.pages.indexOf(page);
+  if(idx < 0) return 0;
+  let j = idx;
+  while(j > 0 && typeof current.pages[j].linePhase !== 'number') j--;
+  let off = (typeof current.pages[j].linePhase === 'number') ? current.pages[j].linePhase : 0;
+  for(let i = j; i < idx; i++) off += current.pages[i].height * RES_SCALE;
+  return off;
+}
+/* ---------- 이면지: 최근 3쪽만 남기기 (2026-10-22) ----------
+   이면지는 낙서용이라 사용자 요청으로 가장 최근 SCRATCH_KEEP_PAGES쪽만 남기고, 그보다 위쪽 페이지는 펜을 쉬는 틈에 조용히 지움.
+   노트가 커질수록 자동 저장(노트 전체 복제)이 길어져 펜이 멈추던 것(22쪽에서 0.3초, 펜 멈춤 기록으로 확인)의 근본 대책.
+   화면에 조금이라도 걸친 페이지는 지우지 않고, 지운 높이만큼 스크롤을 당겨 보던 화면이 튀지 않게 함.
+   페이지를 다시 만들지 않고 번호만 고쳐 쓰므로(글상자·이미지가 있는 쪽만 다시 그림) 지우는 순간에도 가벼움. */
+const SCRATCH_KEEP_PAGES = 3;
+function trimScratchPages(){
+  if(!current || current.type === 'pdf' || current.id !== getScratchId() || !inNoteView()) return false;
+  if(drawing || pinchActive || selection || editingText || selectedText || pastingInk || placingShortcut) return false;
+  if(typeof ovOpen !== 'undefined' && ovOpen) return false;
+  const extra = current.pages.length - SCRATCH_KEEP_PAGES;
+  if(extra <= 0) return false;
+  const blocks = Array.from(stackEl.querySelectorAll('.page-block'));
+  if(blocks.length !== current.pages.length) return false;
+  const wr = wrapEl.getBoundingClientRect();
+  let k = 0;
+  while(k < extra && blocks[k].getBoundingClientRect().bottom <= wr.top - 2) k++;
+  if(!k) return false;
+  const anchor = blocks[k], anchorTop = anchor.getBoundingClientRect().top; // 남는 첫 쪽의 화면 위치(지운 뒤 그대로 돌려놓음)
+  const keep = current.pages.slice(k);
+  if(keep[0].lined && typeof keep[0].linePhase !== 'number') keep[0].linePhase = seamPhase(keep[0]); // 줄 간격 기준점(지우기 전에 계산)
+  // 이 노트 안 쪽 번호 참조(목차·이 노트를 가리키는 바로가기) 당기기
+  if(Array.isArray(current.toc)) current.toc.forEach(it=>{ if(typeof it.page === 'number') it.page = Math.max(0, it.page - k); });
+  keep.forEach(pg=> (pg.shortcuts || []).forEach(sc=>{
+    if(sc.linkedNotebookId === current.id && typeof sc.linkedPage === 'number') sc.linkedPage = Math.max(0, sc.linkedPage - k);
+    if(sc.pair && sc.pair.noteId === current.id && typeof sc.pair.pageIdx === 'number') sc.pair.pageIdx = Math.max(0, sc.pair.pageIdx - k);
+  }));
+  current.pages = keep;
+  for(let i = 0; i < k; i++){ if(lazyObserver) lazyObserver.unobserve(blocks[i]); blocks[i].remove(); }
+  blocks.slice(k).forEach((b, j)=>{
+    b.dataset.pageIdx = j;
+    b.querySelectorAll('canvas[data-page-idx]').forEach(c=>{ c.dataset.pageIdx = j; });
+    const pg = keep[j];
+    if(b.dataset.built === '1' && ((pg.images && pg.images.length) || (pg.texts && pg.texts.length) || (pg.shortcuts && pg.shortcuts.length))) rebuildPageBlock(j); // 개체는 쪽 번호를 품고 있어 새로 만듦
+  });
+  syncStackFootprint();
+  // 브라우저의 스크롤 고정(scroll anchoring)이 먼저 보정할 수도 있어, 지운 높이를 빼지 않고 '남은 첫 쪽이 원래 자리로' 오도록 맞춤
+  wrapEl.scrollTop += anchor.getBoundingClientRect().top - anchorTop;
+  curPage = Math.max(0, curPage - k);
+  if(activePageIdx >= k) activePageIdx -= k; else activePageIdx = 0;
+  // 되돌리기 기록도 쪽 번호를 당기고, 지운 쪽 기록은 버림
+  const shift = (sn)=>{ if(!sn || sn.pageIdx < k) return null; sn.pageIdx -= k; if(sn.also) sn.also = sn.also.map(shift).filter(Boolean); return sn; };
+  [history, redoStack].forEach(st=>{ const kept = st.map(shift).filter(Boolean); st.length = 0; kept.forEach(x=> st.push(x)); });
+  seamLive = null;
+  updatePageIndicatorDisplay();
+  updateThumbnailSoon();
+  saveLastPos(true);
+  scheduleSave();
+  return true;
 }
 let seamLive = null; // 지금 긋는 획을 경계 너머 이웃 페이지 캔버스에도 실시간으로 그리기 위한 [{ctx, dy, h}]
 function seamPrepareLive(){
@@ -8113,6 +8169,8 @@ function scheduleIdlePrep(){ clearTimeout(idlePrepTimer); idlePrepTimer = setTim
 function runIdlePrep(){
   idlePrepTimer = null;
   if(!current || !inNoteView() || drawing || pinchActive) return;
+  if(typeof ovOpen !== 'undefined' && ovOpen) return; // 페이지 모아보기가 떠 있으면 손대지 않음(썸네일 그리기와 겹치면 꾹 누르기 판정이 밀림)
+  if(trimScratchPages()){ scheduleIdlePrep(); return; } // 이면지 오래된 위쪽 정리 — 이번 한가한 틈은 여기까지
   if(current.id === getScratchId() && current.type !== 'pdf'){
     const last = current.pages.length - 1;
     const block = stackEl.querySelector(`.page-block[data-page-idx="${last}"]`);
@@ -8210,7 +8268,7 @@ function updateThumbnailSoon(){
    - 파일 앞 2KB만 Range로 받아 확인하므로 데이터를 거의 안 씀(서버가 Range를 무시해도 동작은 함)
    - 캐시를 확실히 피하려고 일회용 ?nc= 를 붙여서 받음(브라우저가 그 주소를 캐시해도 다음엔 다른 번호라 무해)
    - GitHub Pages는 max-age=600이라 그냥 둬도 10분 뒤엔 새 파일을 받지만, 그걸 기다리지 않고 알려주기 위함 */
-const APP_BUILD = '2026-10-21a';
+const APP_BUILD = '2026-10-22a';
 const UPDATE_RECHECK_MS = 10 * 60 * 1000;
 let updateBannerShown = false, lastUpdateCheck = 0;
 function appBaseUrl(){ return location.pathname.replace(/[^/]*$/, ''); }
