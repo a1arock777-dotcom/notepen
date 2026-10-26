@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>NotePen</title>
-<!-- build: 2026-10-22a (이면지: 최근 3쪽만 남기고 위쪽 자동 정리) -->
+<!-- build: 2026-10-26a (펜을 오래 대고 있을 때 뜨던 복사·번역 메뉴 막기) -->
 <style>
   :root{
     --bg: #f4f3f1;
@@ -307,6 +307,10 @@
 
   /* ---------- Editor view ---------- */
   #editor{ width:100%; height:100%; display:none; flex-direction:column; }
+  /* 펜·손가락을 오래 대고 있으면 삼성 인터넷이 글자 선택 + '복사·번역·웹 검색' 메뉴를 띄우던 것 막기(2026-10-26).
+     입력칸·글상자 타자칸은 그대로 선택 가능 */
+  #editor{ -webkit-user-select:none; user-select:none; -webkit-touch-callout:none; }
+  #editor input, #editor textarea, #editor [contenteditable="true"]{ -webkit-user-select:text; user-select:text; -webkit-touch-callout:default; }
   .topbar{
     height:44px; flex:0 0 auto; display:flex; align-items:center; gap:6px; padding:0 8px;
     background:var(--surface); border-bottom:1px solid var(--border); z-index:10;
@@ -2914,6 +2918,10 @@ const libraryEl = document.getElementById('library');
 const editorEl = document.getElementById('editor');
 const stackEl = document.getElementById('page-stack');
 const wrapEl = document.getElementById('canvas-wrap');
+// 노트 화면에서 오래 누르면 뜨는 브라우저 메뉴(글자 선택 툴바·길게 누르기 메뉴) 차단. 입력칸 안에서는 평소대로 둠
+function editableTarget(t){ return t instanceof Element && !!t.closest('input, textarea, [contenteditable="true"]'); }
+editorEl.addEventListener('contextmenu', (e)=>{ if(!editableTarget(e.target)) e.preventDefault(); });
+editorEl.addEventListener('selectstart', (e)=>{ if(!editableTarget(e.target)) e.preventDefault(); });
 let scrollRaf = null;
 wrapEl.addEventListener('scroll', ()=>{
   if(scrollRaf) return;
@@ -8268,7 +8276,7 @@ function updateThumbnailSoon(){
    - 파일 앞 2KB만 Range로 받아 확인하므로 데이터를 거의 안 씀(서버가 Range를 무시해도 동작은 함)
    - 캐시를 확실히 피하려고 일회용 ?nc= 를 붙여서 받음(브라우저가 그 주소를 캐시해도 다음엔 다른 번호라 무해)
    - GitHub Pages는 max-age=600이라 그냥 둬도 10분 뒤엔 새 파일을 받지만, 그걸 기다리지 않고 알려주기 위함 */
-const APP_BUILD = '2026-10-22a';
+const APP_BUILD = '2026-10-26a';
 const UPDATE_RECHECK_MS = 10 * 60 * 1000;
 let updateBannerShown = false, lastUpdateCheck = 0;
 function appBaseUrl(){ return location.pathname.replace(/[^/]*$/, ''); }
