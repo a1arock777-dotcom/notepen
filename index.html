@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>NotePen</title>
-<!-- build: 2026-10-26a (펜을 오래 대고 있을 때 뜨던 복사·번역 메뉴 막기) -->
+<!-- build: 2026-10-26b (손가락 이동 실패 기록) -->
 <style>
   :root{
     --bg: #f4f3f1;
@@ -968,6 +968,11 @@
         <button class="opt-btn" id="stall-log-clear" style="margin:0; justify-content:center; display:none;">기록 지우기</button>
       </div>
       <div id="stall-log" style="display:none; max-height:40vh; overflow-y:auto; margin-top:6px;"></div>
+      <div style="display:flex; gap:8px; margin-top:8px;">
+        <button class="opt-btn" id="finger-log-btn" style="margin:0; justify-content:center;">👆 손가락 이동 실패 기록</button>
+        <button class="opt-btn" id="finger-log-clear" style="margin:0; justify-content:center; display:none;">기록 지우기</button>
+      </div>
+      <div id="finger-log" style="display:none; max-height:40vh; overflow-y:auto; margin-top:6px;"></div>
       <button class="modal-close" id="modal-guide-close">닫기</button>
     </div>
   </div>
@@ -1727,6 +1732,16 @@ function onFirebaseAuthReady(){
   document.getElementById('stall-log-clear').addEventListener('click', ()=>{
     try{ localStorage.removeItem(STALL_LOG_KEY); }catch(e){}
     renderStallLog(); toast('펜 멈춤 기록을 지웠어요');
+  });
+  document.getElementById('finger-log-btn').addEventListener('click', ()=>{
+    const box = document.getElementById('finger-log'), clr = document.getElementById('finger-log-clear');
+    const show = box.style.display === 'none';
+    box.style.display = show ? 'block' : 'none'; clr.style.display = show ? '' : 'none';
+    if(show){ renderFingerLog(); box.scrollIntoView({block:'nearest'}); }
+  });
+  document.getElementById('finger-log-clear').addEventListener('click', ()=>{
+    try{ localStorage.removeItem(FINGER_LOG_KEY); }catch(e){}
+    renderFingerLog(); toast('손가락 이동 실패 기록을 지웠어요');
   });
   document.addEventListener('keydown', (e)=>{
     if(e.key === 'Escape' && m.style.display !== 'none'){ e.preventDefault(); close(); }
@@ -8168,6 +8183,99 @@ function renderStallLog(){
     return '<div class="guide-row"><div class="guide-k">' + when + '<br><b>' + (r.ms/1000).toFixed(2) + '초</b> · ' + esc(r.ev) + '</div><div class="guide-d">' + esc(r.cause) + '<br>' + esc(r.note) + ' (' + r.pages + '쪽)</div></div>';
   }).join('');
 }
+/* ================= 손가락 이동 실패 기록 (2026-10-26) =================
+   "가끔 손가락으로 화면 움직이는 게 안 먹힌다" 원인을 실기기에서 확인하려고 넣음.
+   노트 화면에서 손가락을 40px 넘게 끌었는데 화면이 안 움직였거나(끝에 닿은 경우 제외),
+   한 손가락만 움직였는데 가만히 닿아 있던 다른 접점 때문에 확대·축소로 처리된 경우만 남긴다.
+   원인은 손가락이 닿는 순간의 앱 상태로 판단(#canvas-wrap 캡처 단계라 페이지 처리보다 먼저 봄).
+   기록은 이 기기의 localStorage(notepen_finger_log)에만, 최근 60건. 📖 설명서 아래 [손가락 이동 실패 기록]에서 봄. */
+const FINGER_LOG_KEY = 'notepen_finger_log', FINGER_MIN_MOVE = 40, FINGER_EDGE_PX = 60;
+const fingerTrack = new Map(); // pointerId -> {x0,y0,x,y,st,sl,zoom,reason,others:[id]}
+const fingerDone = new Map();  // 먼저 뗀 손가락도 확대 판정에 쓰도록 잠깐 보관
+function fingerLoad(){ try{ return JSON.parse(localStorage.getItem(FINGER_LOG_KEY) || '[]') || []; }catch(e){ return []; } }
+function fingerSave(list){ try{ localStorage.setItem(FINGER_LOG_KEY, JSON.stringify(list.slice(-60))); }catch(e){} }
+function fingerWhere(x, y){
+  const W = window.innerWidth, H = window.innerHeight, sides = [];
+  if(x < FINGER_EDGE_PX) sides.push('왼쪽');
+  if(x > W - FINGER_EDGE_PX) sides.push('오른쪽');
+  if(y < FINGER_EDGE_PX) sides.push('위');
+  if(y > H - FINGER_EDGE_PX) sides.push('아래');
+  return sides.length ? '화면 ' + sides.join('·') + ' 가장자리' : '화면 안쪽';
+}
+function fingerReasonAtDown(e){
+  const t = e.target instanceof Element ? e.target : null;
+  if(placingShortcut) return '바로가기 아이콘 놓을 자리 고르는 중이라 손가락이 놓기로 처리됨';
+  if(pastingInk) return '붙여넣기 대기 중이라 손가락이 붙여넣기로 처리됨';
+  if(drawing && drawPointerId !== null && !drawPointerLooksDead()){
+    const ago = Math.round(performance.now() - drawPointerSeenAt);
+    return '펜이 화면에 닿아 있다고 판단해 손가락을 무시함 (마지막 펜 신호 ' + (ago/1000).toFixed(1) + '초 전' + (ago > 300 ? ' — 펜을 뗀 신호가 빠졌을 수 있음' : '') + ')';
+  }
+  if(t && t.closest('.sel-box')) return '올가미로 고른 상자 위에서 시작 — 상자를 옮기는 동작이 됨';
+  if(t && t.closest('.page-shortcut')) return '바로가기 아이콘 위에서 시작 — 아이콘을 잡는 동작이 됨';
+  if(t && t.closest('.img-head, .img-resize')) return '이미지 회색 바·크기 손잡이 위에서 시작';
+  if(t && t.closest('.txt-bar, .sel-bar')) return '떠 있는 막대 위에서 시작';
+  if(pinchActive) return '이미 두 손가락 확대 중';
+  const others = touchEntries().filter(([id])=> id !== e.pointerId);
+  if(others.length) return '다른 접점이 이미 닿아 있어 확대 제스처로 처리됨 (' + others.map(([, p])=> fingerWhere(p.x, p.y)).join(', ') + ')';
+  return '';
+}
+function fingerDown(e){
+  if(e.pointerType !== 'touch' || !current || !inNoteView()) return;
+  fingerTrack.forEach(f=> f.others.push(e.pointerId));
+  fingerTrack.set(e.pointerId, { x0:e.clientX, y0:e.clientY, x:e.clientX, y:e.clientY, st:wrapEl.scrollTop, sl:wrapEl.scrollLeft, zoom,
+    reason: fingerReasonAtDown(e), others: [...fingerTrack.keys()] });
+}
+function fingerMove(e){
+  const f = fingerTrack.get(e.pointerId);
+  if(f){ f.x = e.clientX; f.y = e.clientY; }
+}
+function fingerUp(e){
+  const f = fingerTrack.get(e.pointerId);
+  if(!f) return;
+  fingerTrack.delete(e.pointerId);
+  fingerDone.set(e.pointerId, f); setTimeout(()=> fingerDone.delete(e.pointerId), 3000);
+  const dx = f.x - f.x0, dy = f.y - f.y0, moved = Math.hypot(dx, dy);
+  if(moved < FINGER_MIN_MOVE || !current) return;
+  const zoomChanged = Math.abs(zoom - f.zoom) > 0.01;
+  const scrolled = Math.abs(wrapEl.scrollTop - f.st) + Math.abs(wrapEl.scrollLeft - f.sl);
+  let what, reason = f.reason;
+  if(zoomChanged){
+    // 같이 닿아 있던 다른 접점이 거의 안 움직였으면 '한 손가락으로 끌었는데 확대가 됨'
+    const still = f.others.filter(id=> id !== e.pointerId).map(id=> fingerTrack.get(id) || fingerDone.get(id))
+      .filter(o=> o && Math.hypot(o.x - o.x0, o.y - o.y0) < 15);
+    if(!still.length) return; // 두 손가락을 함께 움직인 정상 확대
+    what = '끌었는데 확대·축소됨 (' + f.zoom.toFixed(2) + '→' + zoom.toFixed(2) + '배)';
+    reason = '가만히 닿아 있던 다른 접점 때문에 확대 제스처로 처리됨 (' + still.map(o=> fingerWhere(o.x0, o.y0)).join(', ') + ')';
+  } else {
+    if(scrolled > 5) return; // 정상적으로 움직임
+    const maxTop = wrapEl.scrollHeight - wrapEl.clientHeight, maxLeft = wrapEl.scrollWidth - wrapEl.clientWidth;
+    const vertical = Math.abs(dy) >= Math.abs(dx);
+    if(vertical ? ((dy < 0 && f.st >= maxTop - 2) || (dy > 0 && f.st <= 2))
+                : ((dx < 0 && f.sl >= maxLeft - 2) || (dx > 0 && f.sl <= 2))) return; // 끝에 닿아 더 못 가는 건 정상
+    what = Math.round(moved) + 'px 끌었는데 화면이 안 움직임';
+    if(!reason) reason = '원인 미확인 (도구 ' + tool + ', 동시 접점 ' + f.others.length + '개)';
+  }
+  const list = fingerLoad();
+  list.push({ at: Date.now(), what, reason, where: fingerWhere(f.x0, f.y0), note: current.title || '', zoom: +zoom.toFixed(2) });
+  fingerSave(list);
+}
+wrapEl.addEventListener('pointerdown', fingerDown, true);
+document.addEventListener('pointermove', fingerMove, {capture:true, passive:true});
+document.addEventListener('pointerup', fingerUp, true);
+document.addEventListener('pointercancel', fingerUp, true);
+function renderFingerLog(){
+  const box = document.getElementById('finger-log');
+  if(!box) return;
+  const list = fingerLoad().slice().reverse();
+  if(!list.length){ box.innerHTML = '<div class="guide-note">아직 기록이 없어요. 노트에서 손가락으로 끌었는데 화면이 안 움직이면 여기에 쌓여요.</div>'; return; }
+  const pad = n=> String(n).padStart(2,'0');
+  const esc = t=> String(t).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  box.innerHTML = list.map(r=>{
+    const d = new Date(r.at);
+    const when = (d.getMonth()+1) + '/' + d.getDate() + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds());
+    return '<div class="guide-row"><div class="guide-k">' + when + '<br>' + esc(r.where) + '</div><div class="guide-d"><b>' + esc(r.what) + '</b><br>' + esc(r.reason) + '<br>' + esc(r.note) + ' · ' + r.zoom + '배</div></div>';
+  }).join('');
+}
 /* 펜을 뗀 한가한 틈에 곧 필요한 페이지를 미리 그려둠 (2026-10-21).
    자동 줄 올리기·스크롤로 아래 페이지가 화면 근처에 들어오는 순간 그리면(한 쪽에 0.07~0.15초) 다시 쓰기 시작한 펜과 겹쳤음.
    한 번에 한 쪽만 그리고, 그 사이 펜이 닿으면 멈춤. 이면지는 빈 페이지도 미리 붙여 둠. */
@@ -8276,7 +8384,7 @@ function updateThumbnailSoon(){
    - 파일 앞 2KB만 Range로 받아 확인하므로 데이터를 거의 안 씀(서버가 Range를 무시해도 동작은 함)
    - 캐시를 확실히 피하려고 일회용 ?nc= 를 붙여서 받음(브라우저가 그 주소를 캐시해도 다음엔 다른 번호라 무해)
    - GitHub Pages는 max-age=600이라 그냥 둬도 10분 뒤엔 새 파일을 받지만, 그걸 기다리지 않고 알려주기 위함 */
-const APP_BUILD = '2026-10-26a';
+const APP_BUILD = '2026-10-26b';
 const UPDATE_RECHECK_MS = 10 * 60 * 1000;
 let updateBannerShown = false, lastUpdateCheck = 0;
 function appBaseUrl(){ return location.pathname.replace(/[^/]*$/, ''); }
