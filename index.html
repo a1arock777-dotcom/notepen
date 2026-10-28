@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>NotePen</title>
-<!-- build: 2026-10-26b (손가락 이동 실패 기록) -->
+<!-- build: 2026-10-28a (설명서 창에서 기록 목록이 안 보이던 것 수정) -->
 <style>
   :root{
     --bg: #f4f3f1;
@@ -230,6 +230,9 @@
   /* ---------- 단축키 설명서 ---------- */
   #modal-guide .modal{ max-width:600px; max-height:88vh; display:flex; flex-direction:column; padding:18px 18px 10px; }
   #guide-body{ overflow-y:auto; flex:1 1 auto; margin:0 -4px; padding:0 4px; overscroll-behavior:contain; }
+  /* 기록 목록은 스크롤 상자라 flex 안에서 높이 0까지 줄어들어 안 보였음(10-28) → 줄지 않게 하고 설명서 쪽이 대신 줄어듦 */
+  #stall-log, #finger-log{ flex:0 0 auto; overscroll-behavior:contain; }
+  #guide-body{ min-height:60px; }
   .guide-sec{ margin:14px 0 4px; font-size:13.5px; font-weight:800; color:var(--accent-2); }
   .guide-sec:first-child{ margin-top:4px; }
   .guide-row{ display:flex; gap:12px; align-items:flex-start; padding:7px 2px; border-bottom:1px solid var(--border); font-size:13px; line-height:1.45; }
@@ -8384,7 +8387,7 @@ function updateThumbnailSoon(){
    - 파일 앞 2KB만 Range로 받아 확인하므로 데이터를 거의 안 씀(서버가 Range를 무시해도 동작은 함)
    - 캐시를 확실히 피하려고 일회용 ?nc= 를 붙여서 받음(브라우저가 그 주소를 캐시해도 다음엔 다른 번호라 무해)
    - GitHub Pages는 max-age=600이라 그냥 둬도 10분 뒤엔 새 파일을 받지만, 그걸 기다리지 않고 알려주기 위함 */
-const APP_BUILD = '2026-10-26b';
+const APP_BUILD = '2026-10-28a';
 const UPDATE_RECHECK_MS = 10 * 60 * 1000;
 let updateBannerShown = false, lastUpdateCheck = 0;
 function appBaseUrl(){ return location.pathname.replace(/[^/]*$/, ''); }
