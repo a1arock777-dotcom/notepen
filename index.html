@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>NotePen</title>
-<!-- build: 2026-10-28a (설명서 창에서 기록 목록이 안 보이던 것 수정) -->
+<!-- build: 2026-10-28b (손가락 기록에 끝난 방식·방향 추가) -->
 <style>
   :root{
     --bg: #f4f3f1;
@@ -8193,6 +8193,11 @@ function renderStallLog(){
    원인은 손가락이 닿는 순간의 앱 상태로 판단(#canvas-wrap 캡처 단계라 페이지 처리보다 먼저 봄).
    기록은 이 기기의 localStorage(notepen_finger_log)에만, 최근 60건. 📖 설명서 아래 [손가락 이동 실패 기록]에서 봄. */
 const FINGER_LOG_KEY = 'notepen_finger_log', FINGER_MIN_MOVE = 40, FINGER_EDGE_PX = 60;
+// 브라우저·시스템이 터치를 가져가(pointercancel) 끝난 경우는 조금만 끌었어도 남김 — 가장자리 제스처는 금방 가로채기 때문 (10-28)
+const FINGER_CANCEL_MIN_MOVE = 15;
+function fingerDir(dx, dy){
+  return Math.abs(dy) >= Math.abs(dx) ? (dy < 0 ? '위로' : '아래로') : (dx < 0 ? '왼쪽으로' : '오른쪽으로');
+}
 const fingerTrack = new Map(); // pointerId -> {x0,y0,x,y,st,sl,zoom,reason,others:[id]}
 const fingerDone = new Map();  // 먼저 뗀 손가락도 확대 판정에 쓰도록 잠깐 보관
 function fingerLoad(){ try{ return JSON.parse(localStorage.getItem(FINGER_LOG_KEY) || '[]') || []; }catch(e){ return []; } }
@@ -8238,7 +8243,8 @@ function fingerUp(e){
   fingerTrack.delete(e.pointerId);
   fingerDone.set(e.pointerId, f); setTimeout(()=> fingerDone.delete(e.pointerId), 3000);
   const dx = f.x - f.x0, dy = f.y - f.y0, moved = Math.hypot(dx, dy);
-  if(moved < FINGER_MIN_MOVE || !current) return;
+  const canceled = e.type === 'pointercancel';
+  if(moved < (canceled ? FINGER_CANCEL_MIN_MOVE : FINGER_MIN_MOVE) || !current) return;
   const zoomChanged = Math.abs(zoom - f.zoom) > 0.01;
   const scrolled = Math.abs(wrapEl.scrollTop - f.st) + Math.abs(wrapEl.scrollLeft - f.sl);
   let what, reason = f.reason;
@@ -8259,7 +8265,9 @@ function fingerUp(e){
     if(!reason) reason = '원인 미확인 (도구 ' + tool + ', 동시 접점 ' + f.others.length + '개)';
   }
   const list = fingerLoad();
-  list.push({ at: Date.now(), what, reason, where: fingerWhere(f.x0, f.y0), note: current.title || '', zoom: +zoom.toFixed(2) });
+  list.push({ at: Date.now(), what, reason, where: fingerWhere(f.x0, f.y0), note: current.title || '', zoom: +zoom.toFixed(2),
+    dir: fingerDir(dx, dy) + ' ' + Math.round(moved) + 'px',
+    end: canceled ? '취소됨 — 브라우저·시스템이 터치를 가져감' : '정상으로 뗌' });
   fingerSave(list);
 }
 wrapEl.addEventListener('pointerdown', fingerDown, true);
@@ -8276,7 +8284,8 @@ function renderFingerLog(){
   box.innerHTML = list.map(r=>{
     const d = new Date(r.at);
     const when = (d.getMonth()+1) + '/' + d.getDate() + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds());
-    return '<div class="guide-row"><div class="guide-k">' + when + '<br>' + esc(r.where) + '</div><div class="guide-d"><b>' + esc(r.what) + '</b><br>' + esc(r.reason) + '<br>' + esc(r.note) + ' · ' + r.zoom + '배</div></div>';
+    return '<div class="guide-row"><div class="guide-k">' + when + '<br>' + esc(r.where) + '</div><div class="guide-d"><b>' + esc(r.what) + '</b><br>' + esc(r.reason) + '<br>'
+      + (r.dir ? '방향: ' + esc(r.dir) + ' · 끝: ' + esc(r.end) + '<br>' : '') + esc(r.note) + ' · ' + r.zoom + '배</div></div>';
   }).join('');
 }
 /* 펜을 뗀 한가한 틈에 곧 필요한 페이지를 미리 그려둠 (2026-10-21).
@@ -8387,7 +8396,7 @@ function updateThumbnailSoon(){
    - 파일 앞 2KB만 Range로 받아 확인하므로 데이터를 거의 안 씀(서버가 Range를 무시해도 동작은 함)
    - 캐시를 확실히 피하려고 일회용 ?nc= 를 붙여서 받음(브라우저가 그 주소를 캐시해도 다음엔 다른 번호라 무해)
    - GitHub Pages는 max-age=600이라 그냥 둬도 10분 뒤엔 새 파일을 받지만, 그걸 기다리지 않고 알려주기 위함 */
-const APP_BUILD = '2026-10-28a';
+const APP_BUILD = '2026-10-28b';
 const UPDATE_RECHECK_MS = 10 * 60 * 1000;
 let updateBannerShown = false, lastUpdateCheck = 0;
 function appBaseUrl(){ return location.pathname.replace(/[^/]*$/, ''); }
