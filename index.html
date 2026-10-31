@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>NotePen</title>
-<!-- build: 2026-11-02b (Shift+위아래 화살표로 한 페이지씩 이동) -->
+<!-- build: 2026-11-03a (방향키 한 번 이동량 15%→30%) -->
 <style>
   :root{
     --bg: #f4f3f1;
@@ -3924,10 +3924,10 @@ function holdAutoLift(){
 }
 /* ---------- 이면지 방향키 이동 (2026-11-01, 사용자 요청) ----------
    키보드 ↑↓←→로 화면을 조금씩 옮김(쪽 단위 아님). 우선 이면지 노트에만 적용 — 써 보고 다른 노트로 넓힐 예정.
-   한 번 누르면 화면 높이/너비의 ARROW_STEP_FRAC 만큼, 꾹 누르고 있으면(키 반복) 한 번당 ARROW_REPEAT_FRAC 만큼씩 부드럽게 따라감.
+   한 번 누르면 화면 높이/너비의 ARROW_STEP_FRAC(30%) 만큼, 꾹 누르고 있으면(키 반복) 한 번당 ARROW_REPEAT_FRAC 만큼씩 부드럽게 따라감.
    '너무 많이/적게 움직인다'는 피드백이 오면 이 두 숫자만 조절하면 됨. 입력칸·팝업·필기 중에는 동작하지 않음.
    움직이면 대기 중이던 자동 줄 올리기는 취소(화면 위치가 바뀌어 올릴 높이가 틀어지므로). */
-const ARROW_STEP_FRAC = 0.15, ARROW_REPEAT_FRAC = 0.05;
+const ARROW_STEP_FRAC = 0.30, ARROW_REPEAT_FRAC = 0.05; // 11-03: 한 번 누를 때 15%→30%(사용자 요청)
 let arrowAnim = null, arrowTX = 0, arrowTY = 0;
 function arrowScrollActive(){
   return !!(current && current.id === getScratchId() && current.type !== 'pdf' && inNoteView()
@@ -8590,7 +8590,7 @@ function updateThumbnailSoon(){
    - 파일 앞 2KB만 Range로 받아 확인하므로 데이터를 거의 안 씀(서버가 Range를 무시해도 동작은 함)
    - 캐시를 확실히 피하려고 일회용 ?nc= 를 붙여서 받음(브라우저가 그 주소를 캐시해도 다음엔 다른 번호라 무해)
    - GitHub Pages는 max-age=600이라 그냥 둬도 10분 뒤엔 새 파일을 받지만, 그걸 기다리지 않고 알려주기 위함 */
-const APP_BUILD = '2026-11-02b';
+const APP_BUILD = '2026-11-03a';
 const UPDATE_RECHECK_MS = 10 * 60 * 1000;
 let updateBannerShown = false, lastUpdateCheck = 0;
 function appBaseUrl(){ return location.pathname.replace(/[^/]*$/, ''); }
