@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>NotePen</title>
-<!-- build: 2026-11-01a (이면지 방향키로 화면 조금씩 이동) -->
+<!-- build: 2026-11-02a (확대·축소 배율 고정 버튼·Ctrl+A) -->
 <style>
   :root{
     --bg: #f4f3f1;
@@ -465,6 +465,10 @@
   #btn-toc{ background:rgba(214,48,49,0.95); font-size:14px; font-weight:800; }
   #btn-scratch{ background:rgba(43,107,217,0.95); font-size:14px; font-weight:800; }
   #btn-toc:active, #btn-scratch:active{ filter:brightness(1.3); }
+  /* 확대·축소 배율 고정 버튼 — 고정 중이면 주황 배경 + 자물쇠 표시 (2026-11-02) */
+  #btn-zoomlock svg{ pointer-events:none; display:block; }
+  #btn-zoomlock.np-zl-on{ background:rgba(217,98,43,0.95); }
+  #btn-zoomlock.np-zl-on::before{ content:'🔒'; position:absolute; right:-3px; bottom:-5px; font-size:11px; line-height:1; pointer-events:none; }
   /* 오른쪽 버튼 위에 펜/마우스를 올리면 왼쪽에 뜨는 작은 이름표 (아이콘만으로는 헷갈려서) */
   .page-nav-btn[data-tip]{ position:relative; }
   .page-nav-btn[data-tip]::after{
@@ -975,7 +979,7 @@
   <div class="modal-backdrop" id="modal-guide" style="display:none;">
     <div class="modal">
       <h3>📖 단축키 설명서</h3>
-      <div id="guide-body"><div class="guide-sec">⌨️ 키보드 — 어디서나</div><div class="guide-row"><div class="guide-k"><kbd>Ctrl</kbd> + <kbd>Q</kbd></div><div class="guide-d">펜으로 꾹 눌러 글상자 만들기 켜기/끄기</div></div><div class="guide-row"><div class="guide-k"><kbd>Ctrl</kbd> + <kbd>B</kbd></div><div class="guide-d">펜 예측(필기 끝을 미리 그려 덜 늦어 보이게) 켜기/끄기</div></div><div class="guide-row"><div class="guide-k"><kbd>Ctrl</kbd> + <kbd>M</kbd></div><div class="guide-d">이면지 자동 줄 올리기 켜기/끄기 (한 줄 쓰고 2초 쉬면 그 줄이 화면 위 15% 자리로 올라옴 — 매 줄 같은 높이에서 씀). 쉬는 동안 왼쪽에 뜨는 동그라미 테두리가 다 차면 올라가고, 동그라미를 누르거나 키보드 <kbd>A</kbd>를 누르면 이번엔 안 올라가요. 이면지는 최근 3쪽만 남고 위쪽은 자동으로 지워져요</div></div><div class="guide-row"><div class="guide-k"><kbd>1</kbd> ~ <kbd>0</kbd></div><div class="guide-d">번호에 지정해 둔 노트 바로 열기 (지정은 라이브러리의 키보드 모양 버튼)</div></div><div class="guide-row"><div class="guide-k"><kbd>Tab</kbd></div><div class="guide-d">바로 전에 보던 노트로 돌아가기</div></div><div class="guide-row"><div class="guide-k"><kbd>↑</kbd><kbd>↓</kbd><kbd>←</kbd><kbd>→</kbd></div><div class="guide-d">이면지 노트에서 화면을 조금씩 이동 (꾹 누르면 계속 이동)</div></div><div class="guide-sec">✂️ 키보드 — 노트 화면 (올가미 선택)</div><div class="guide-row"><div class="guide-k"><kbd>Ctrl</kbd> + <kbd>C</kbd></div><div class="guide-d">올가미로 고른 필기 복사</div></div><div class="guide-row"><div class="guide-k"><kbd>Ctrl</kbd> + <kbd>X</kbd></div><div class="guide-d">올가미로 고른 필기 잘라내기</div></div><div class="guide-row"><div class="guide-k"><kbd>Ctrl</kbd> + <kbd>V</kbd></div><div class="guide-d">붙여넣기 → 놓을 자리를 펜으로 탭</div></div><div class="guide-sec">🔤 키보드 — 글상자</div><div class="guide-row"><div class="guide-k"><kbd>Enter</kbd> / <kbd>Esc</kbd></div><div class="guide-d">글상자를 고른 상태: 선택 풀기 (배경에 박힘)</div></div><div class="guide-row"><div class="guide-k"><kbd>Delete</kbd> / <kbd>Backspace</kbd></div><div class="guide-d">고른 글상자 통째로 지우기 (되돌리기로 복구 가능)</div></div><div class="guide-row"><div class="guide-k"><kbd>F2</kbd></div><div class="guide-d">고른 글상자 글자 고치기 (두 번 탭과 같음)</div></div><div class="guide-row"><div class="guide-k"><kbd>Enter</kbd></div><div class="guide-d">입력 중: 입력 마치기</div></div><div class="guide-row"><div class="guide-k"><kbd>Shift</kbd> + <kbd>Enter</kbd></div><div class="guide-d">입력 중: 줄 바꾸기</div></div><div class="guide-row"><div class="guide-k"><kbd>Esc</kbd></div><div class="guide-d">입력 중: 입력 마치기</div></div><div class="guide-sec">▦ 키보드 — 페이지 모아보기 · 라이브러리</div><div class="guide-row"><div class="guide-k"><kbd>Esc</kbd></div><div class="guide-d">모아보기: 내보내기 창 → 붙여넣기 → 선택 → 모아보기 순서로 한 단계씩 닫기</div></div><div class="guide-row"><div class="guide-k"><kbd>Ctrl</kbd> + 휠</div><div class="guide-d">모아보기: 한 줄에 보이는 페이지 수 조절</div></div><div class="guide-row"><div class="guide-k"><kbd>Esc</kbd> / <kbd>Enter</kbd></div><div class="guide-d">라이브러리 검색칸: 검색어 지우기 / 입력 마치기</div></div><div class="guide-sec">✍️ 펜 동작</div><div class="guide-row"><div class="guide-k">펜 꾹 누르기 (0.45초)</div><div class="guide-d">그 자리에 글상자 만들기 (Ctrl+Q로 끄고 켬)</div></div><div class="guide-row"><div class="guide-k">펜 지우개 끝</div><div class="guide-d">도구와 상관없이 항상 지우기</div></div><div class="guide-row"><div class="guide-k">펜을 아이콘 위에 잠시</div><div class="guide-d">그 아이콘 설명 보기</div></div><div class="guide-sec">👆 손가락 동작</div><div class="guide-row"><div class="guide-k">한 손가락 끌기</div><div class="guide-d">화면 이동 (스크롤)</div></div><div class="guide-row"><div class="guide-k">두 손가락 벌리기/오므리기</div><div class="guide-d">확대 · 축소</div></div><div class="guide-row"><div class="guide-k">한 손가락 두 번 톡톡</div><div class="guide-d">페이지 폭에 맞추기 ↔ 원래 배율</div></div><div class="guide-row"><div class="guide-k">두 손가락 톡</div><div class="guide-d">되돌리기 (Ctrl+Z와 같음)</div></div><div class="guide-sec">⏱️ 꾹 누르는 버튼들</div><div class="guide-row"><div class="guide-k">펜 버튼 꾹</div><div class="guide-d">이 노트의 기본 펜(색·굵기) 정하기 — 노트를 열 때 적용</div></div><div class="guide-row"><div class="guide-k">색깔 칸 3초 꾹</div><div class="guide-d">이 노트의 "쉴 때 돌아갈 색" 정하기 — 5초 쉬면 그 색으로 복귀</div></div><div class="guide-row"><div class="guide-k">지우개 버튼 0.45초 꾹</div><div class="guide-d">지우개 방식 고르기 (짧게 탭하면 지금 방식으로 지움)</div></div><div class="guide-row"><div class="guide-k">전체화면 버튼 0.6초 꾹</div><div class="guide-d">전체화면 고정/해제 (🔒 표시, 고정 중엔 짧게 눌러도 안 나감)</div></div><div class="guide-row"><div class="guide-k">"이" 버튼 꾹</div><div class="guide-d">이면지로 쓸 노트 다시 고르기</div></div><div class="guide-sec">▦ 페이지 모아보기 (제목줄 ▦ 버튼)</div><div class="guide-row"><div class="guide-k">페이지 탭</div><div class="guide-d">그 페이지로 이동</div></div><div class="guide-row"><div class="guide-k">페이지 꾹 누르기</div><div class="guide-d">선택 모드 → 여러 장 고르기</div></div><div class="guide-row"><div class="guide-k">고른 페이지 끌기</div><div class="guide-d">원하는 자리로 옮기기</div></div><div class="guide-row"><div class="guide-k">선택 후 아래 버튼</div><div class="guide-d">삭제(되돌리기 가능) · 복사해 붙이기 · 이미지로 내보내기/클립보드 복사</div></div><div class="guide-row"><div class="guide-k">두 손가락 벌리기/오므리기</div><div class="guide-d">한 줄에 보이는 페이지 수 조절</div></div><div class="guide-note">※ 키보드 단축키는 블루투스·북커버 키보드를 연결했을 때 써요. 삼성 인터넷은 Ctrl+E를 브라우저가 먼저 가져가서 앱에서 쓰지 않아요.</div></div>
+      <div id="guide-body"><div class="guide-sec">⌨️ 키보드 — 어디서나</div><div class="guide-row"><div class="guide-k"><kbd>Ctrl</kbd> + <kbd>Q</kbd></div><div class="guide-d">펜으로 꾹 눌러 글상자 만들기 켜기/끄기</div></div><div class="guide-row"><div class="guide-k"><kbd>Ctrl</kbd> + <kbd>B</kbd></div><div class="guide-d">펜 예측(필기 끝을 미리 그려 덜 늦어 보이게) 켜기/끄기</div></div><div class="guide-row"><div class="guide-k"><kbd>Ctrl</kbd> + <kbd>M</kbd></div><div class="guide-d">이면지 자동 줄 올리기 켜기/끄기 (한 줄 쓰고 2초 쉬면 그 줄이 화면 위 15% 자리로 올라옴 — 매 줄 같은 높이에서 씀). 쉬는 동안 왼쪽에 뜨는 동그라미 테두리가 다 차면 올라가고, 동그라미를 누르거나 키보드 <kbd>A</kbd>를 누르면 이번엔 안 올라가요. 이면지는 최근 3쪽만 남고 위쪽은 자동으로 지워져요</div></div><div class="guide-row"><div class="guide-k"><kbd>Ctrl</kbd> + <kbd>A</kbd></div><div class="guide-d">노트 화면에서 확대·축소 배율 고정/풀기 (오른쪽 목차 위 🔍 버튼과 같음). 고정하면 핀치·두 번 톡톡·＋－로 배율이 안 바뀌어요</div></div><div class="guide-row"><div class="guide-k"><kbd>1</kbd> ~ <kbd>0</kbd></div><div class="guide-d">번호에 지정해 둔 노트 바로 열기 (지정은 라이브러리의 키보드 모양 버튼)</div></div><div class="guide-row"><div class="guide-k"><kbd>Tab</kbd></div><div class="guide-d">바로 전에 보던 노트로 돌아가기</div></div><div class="guide-row"><div class="guide-k"><kbd>↑</kbd><kbd>↓</kbd><kbd>←</kbd><kbd>→</kbd></div><div class="guide-d">이면지 노트에서 화면을 조금씩 이동 (꾹 누르면 계속 이동)</div></div><div class="guide-sec">✂️ 키보드 — 노트 화면 (올가미 선택)</div><div class="guide-row"><div class="guide-k"><kbd>Ctrl</kbd> + <kbd>C</kbd></div><div class="guide-d">올가미로 고른 필기 복사</div></div><div class="guide-row"><div class="guide-k"><kbd>Ctrl</kbd> + <kbd>X</kbd></div><div class="guide-d">올가미로 고른 필기 잘라내기</div></div><div class="guide-row"><div class="guide-k"><kbd>Ctrl</kbd> + <kbd>V</kbd></div><div class="guide-d">붙여넣기 → 놓을 자리를 펜으로 탭</div></div><div class="guide-sec">🔤 키보드 — 글상자</div><div class="guide-row"><div class="guide-k"><kbd>Enter</kbd> / <kbd>Esc</kbd></div><div class="guide-d">글상자를 고른 상태: 선택 풀기 (배경에 박힘)</div></div><div class="guide-row"><div class="guide-k"><kbd>Delete</kbd> / <kbd>Backspace</kbd></div><div class="guide-d">고른 글상자 통째로 지우기 (되돌리기로 복구 가능)</div></div><div class="guide-row"><div class="guide-k"><kbd>F2</kbd></div><div class="guide-d">고른 글상자 글자 고치기 (두 번 탭과 같음)</div></div><div class="guide-row"><div class="guide-k"><kbd>Enter</kbd></div><div class="guide-d">입력 중: 입력 마치기</div></div><div class="guide-row"><div class="guide-k"><kbd>Shift</kbd> + <kbd>Enter</kbd></div><div class="guide-d">입력 중: 줄 바꾸기</div></div><div class="guide-row"><div class="guide-k"><kbd>Esc</kbd></div><div class="guide-d">입력 중: 입력 마치기</div></div><div class="guide-sec">▦ 키보드 — 페이지 모아보기 · 라이브러리</div><div class="guide-row"><div class="guide-k"><kbd>Esc</kbd></div><div class="guide-d">모아보기: 내보내기 창 → 붙여넣기 → 선택 → 모아보기 순서로 한 단계씩 닫기</div></div><div class="guide-row"><div class="guide-k"><kbd>Ctrl</kbd> + 휠</div><div class="guide-d">모아보기: 한 줄에 보이는 페이지 수 조절</div></div><div class="guide-row"><div class="guide-k"><kbd>Esc</kbd> / <kbd>Enter</kbd></div><div class="guide-d">라이브러리 검색칸: 검색어 지우기 / 입력 마치기</div></div><div class="guide-sec">✍️ 펜 동작</div><div class="guide-row"><div class="guide-k">펜 꾹 누르기 (0.45초)</div><div class="guide-d">그 자리에 글상자 만들기 (Ctrl+Q로 끄고 켬)</div></div><div class="guide-row"><div class="guide-k">펜 지우개 끝</div><div class="guide-d">도구와 상관없이 항상 지우기</div></div><div class="guide-row"><div class="guide-k">펜을 아이콘 위에 잠시</div><div class="guide-d">그 아이콘 설명 보기</div></div><div class="guide-sec">👆 손가락 동작</div><div class="guide-row"><div class="guide-k">한 손가락 끌기</div><div class="guide-d">화면 이동 (스크롤)</div></div><div class="guide-row"><div class="guide-k">두 손가락 벌리기/오므리기</div><div class="guide-d">확대 · 축소</div></div><div class="guide-row"><div class="guide-k">한 손가락 두 번 톡톡</div><div class="guide-d">페이지 폭에 맞추기 ↔ 원래 배율</div></div><div class="guide-row"><div class="guide-k">두 손가락 톡</div><div class="guide-d">되돌리기 (Ctrl+Z와 같음)</div></div><div class="guide-sec">⏱️ 꾹 누르는 버튼들</div><div class="guide-row"><div class="guide-k">펜 버튼 꾹</div><div class="guide-d">이 노트의 기본 펜(색·굵기) 정하기 — 노트를 열 때 적용</div></div><div class="guide-row"><div class="guide-k">색깔 칸 3초 꾹</div><div class="guide-d">이 노트의 "쉴 때 돌아갈 색" 정하기 — 5초 쉬면 그 색으로 복귀</div></div><div class="guide-row"><div class="guide-k">지우개 버튼 0.45초 꾹</div><div class="guide-d">지우개 방식 고르기 (짧게 탭하면 지금 방식으로 지움)</div></div><div class="guide-row"><div class="guide-k">전체화면 버튼 0.6초 꾹</div><div class="guide-d">전체화면 고정/해제 (🔒 표시, 고정 중엔 짧게 눌러도 안 나감)</div></div><div class="guide-row"><div class="guide-k">"이" 버튼 꾹</div><div class="guide-d">이면지로 쓸 노트 다시 고르기</div></div><div class="guide-sec">▦ 페이지 모아보기 (제목줄 ▦ 버튼)</div><div class="guide-row"><div class="guide-k">페이지 탭</div><div class="guide-d">그 페이지로 이동</div></div><div class="guide-row"><div class="guide-k">페이지 꾹 누르기</div><div class="guide-d">선택 모드 → 여러 장 고르기</div></div><div class="guide-row"><div class="guide-k">고른 페이지 끌기</div><div class="guide-d">원하는 자리로 옮기기</div></div><div class="guide-row"><div class="guide-k">선택 후 아래 버튼</div><div class="guide-d">삭제(되돌리기 가능) · 복사해 붙이기 · 이미지로 내보내기/클립보드 복사</div></div><div class="guide-row"><div class="guide-k">두 손가락 벌리기/오므리기</div><div class="guide-d">한 줄에 보이는 페이지 수 조절</div></div><div class="guide-note">※ 키보드 단축키는 블루투스·북커버 키보드를 연결했을 때 써요. 삼성 인터넷은 Ctrl+E를 브라우저가 먼저 가져가서 앱에서 쓰지 않아요.</div></div>
       <div style="display:flex; gap:8px; margin-top:8px;">
         <button class="opt-btn" id="stall-log-btn" style="margin:0; justify-content:center;">⏱ 펜 멈춤 기록</button>
         <button class="opt-btn" id="stall-log-clear" style="margin:0; justify-content:center; display:none;">기록 지우기</button>
@@ -1199,6 +1203,7 @@
       <div class="page-stack" id="page-stack"></div>
     </div>
     <div id="page-nav">
+      <button type="button" class="page-nav-btn" id="btn-zoomlock" data-tip="배율 고정" title="확대·축소 배율 고정 (Ctrl+A)"><svg viewBox="0 0 20 20" width="17" height="17" aria-hidden="true"><circle cx="8.5" cy="8.5" r="5.2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12.6 12.6 17 17" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/><path d="M6.2 8.5h4.6M8.5 6.2v4.6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></button>
       <button type="button" class="page-nav-btn" id="btn-toc" data-tip="목차" title="목차">목</button>
       <button type="button" class="page-nav-btn" id="btn-scratch-back" data-tip="돌아가기" title="원래 보던 노트로 돌아가기" style="display:none;">↩️</button>
       <button type="button" class="page-nav-btn" id="btn-scratch" data-tip="이면지" title="이면지 (꾹 누르면 다시 고르기)">이</button>
@@ -2619,7 +2624,7 @@ async function zipBytes(zip, e){
   return new Uint8Array(await zip.file.slice(start, start + e.csize).arrayBuffer());
 }
 
-const BACKUP_SETTING_KEYS = ['notepen_inkpred','notepen_autolift','notepen_fs_lock','notepen_overview_cols','notepen_folders','notepen_note_order','notepen_note_pins','notepen_note_favs','notepen_scratch_note','notepen_eraser_mode','notepen_hotkeys','notepen_text_style','notepen_penhold'];
+const BACKUP_SETTING_KEYS = ['notepen_inkpred','notepen_autolift','notepen_zoomlock','notepen_fs_lock','notepen_overview_cols','notepen_folders','notepen_note_order','notepen_note_pins','notepen_note_favs','notepen_scratch_note','notepen_eraser_mode','notepen_hotkeys','notepen_text_style','notepen_penhold'];
 
 async function exportBackup(){
   const btn = document.getElementById('backup-export');
@@ -3179,6 +3184,13 @@ document.addEventListener('keydown', (e)=>{
      && !hotkeyInputBusy() && !hotkeyPopupOpen()){
     e.preventDefault();
     toggleAutoLift();
+    return;
+  }
+  // Ctrl+A : 확대·축소 배율 고정/풀기 — 노트 화면에서만. 입력칸·글상자 타자 중에는 평소처럼 '전체 선택'이 우선
+  if((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && (e.code === 'KeyA' || (e.key || '').toLowerCase() === 'a')
+     && inNoteView() && !hotkeyInputBusy() && !hotkeyPopupOpen()){
+    e.preventDefault();
+    toggleZoomLock();
     return;
   }
   // 올가미 선택 복사·잘라내기·붙여넣기 (키보드를 쓸 때만; 입력칸에 있을 땐 브라우저 기본 동작이 우선)
@@ -4334,8 +4346,35 @@ function fitZoomToWidth(){
   zoom = Math.max(0.3, Math.min(10, available / maxW));
   savedZoom = null;
 }
+/* ---------- 확대·축소 배율 고정 (2026-11-02, 사용자 요청) ----------
+   오른쪽 목차(목) 위 🔍 버튼 또는 Ctrl+A로 켜고 끔. 켜져 있으면 손가락 핀치·두 번 톡톡(폭 맞춤)·툴바 ＋－로 배율이 안 바뀜.
+   (노트를 열 때 폭에 맞추는 것 같은 앱 내부 동작은 그대로.) 기기별 설정 notepen_zoomlock('1'일 때만 고정 — 값이 깨지면 풀린 상태). */
+const ZOOMLOCK_KEY = 'notepen_zoomlock';
+let zoomLocked = false;
+try{ zoomLocked = localStorage.getItem(ZOOMLOCK_KEY) === '1'; }catch(e){}
+let zoomLockNoticeAt = 0;
+function zoomLockedNotice(){
+  const now = Date.now();
+  if(now - zoomLockNoticeAt < 2500) return;
+  zoomLockNoticeAt = now;
+  toast('확대·축소 배율이 고정돼 있어요 (오른쪽 🔍 또는 Ctrl+A로 풀기)');
+}
+function updateZoomLockButton(){
+  const b = document.getElementById('btn-zoomlock');
+  if(!b) return;
+  b.classList.toggle('np-zl-on', zoomLocked);
+  b.setAttribute('data-tip', zoomLocked ? '배율 고정됨' : '배율 고정');
+  b.title = zoomLocked ? '확대·축소 배율 고정 중 — 누르면 풀림 (Ctrl+A)' : '확대·축소 배율 고정 (Ctrl+A)';
+}
+function toggleZoomLock(){
+  zoomLocked = !zoomLocked;
+  try{ localStorage.setItem(ZOOMLOCK_KEY, zoomLocked ? '1' : '0'); }catch(e){}
+  updateZoomLockButton();
+  toast(zoomLocked ? '확대·축소 배율 고정 — 지금 배율 그대로 유지돼요 (Ctrl+A로 풀기)' : '확대·축소 배율 고정을 풀었어요');
+}
 function fitPageWidth(anchorClientX, anchorClientY){
   if(!current) return;
+  if(zoomLocked){ zoomLockedNotice(); return; }
   const maxW = Math.max(...current.pages.map(p=>p.width));
   const available = wrapEl.clientWidth - 20;
   const fitZoom = Math.max(0.3, Math.min(10, available / maxW));
@@ -5604,7 +5643,9 @@ function onPointerMove(e){
        (dist(p1, twoFingerTap.pts[0]) > TWO_FINGER_TAP_MOVE || dist(p2, twoFingerTap.pts[1]) > TWO_FINGER_TAP_MOVE)){
       twoFingerTap = null; // 손가락이 움직였으므로 '톡'이 아니라 확대/축소 제스처
     }
-    if(p1 && p2 && pinchStartDist>0){
+    if(zoomLocked){
+      if(p1 && p2 && Math.abs(dist(p1, p2) - pinchStartDist) > 24) zoomLockedNotice(); // 크게 벌리거나 오므릴 때만 알림(두 손가락 톡 되돌리기엔 안 뜸)
+    } else if(p1 && p2 && pinchStartDist>0){
       const d = dist(p1, p2);
       let newZoom = pinchStartZoom * (d / pinchStartDist);
       newZoom = Math.min(10, Math.max(0.3, newZoom));
@@ -7305,6 +7346,8 @@ document.addEventListener('pointerout', (e)=>{ if(e.pointerType === 'pen' && !e.
 window.addEventListener('scroll', ()=>{ if(penTipTarget) hidePenTip(); }, true);
 document.getElementById('toc-search').addEventListener('input', renderToc);
 document.getElementById('btn-toc').addEventListener('click', openTocPanel);
+document.getElementById('btn-zoomlock').addEventListener('click', toggleZoomLock);
+updateZoomLockButton();
 document.getElementById('toc-add-btn').addEventListener('click', addCurrentPageToToc);
 document.getElementById('toc-name-input').addEventListener('keydown', (e)=>{
   if(e.key === 'Enter'){ e.preventDefault(); addCurrentPageToToc(); }
@@ -8067,8 +8110,8 @@ document.getElementById('btn-add-shortcut').addEventListener('click', ()=>{
   setPlacingShortcut(!placingShortcut);
   if(placingShortcut) toast('노트 위를 눌러서 아이콘을 놓을 위치를 선택하세요');
 });
-document.getElementById('btn-zoom-in').onclick = ()=>{ zoom = Math.min(10, zoom + (zoom<3?0.15:0.5)); stackEl.style.transform = `scale(${zoom})`; centerIfFits(); };
-document.getElementById('btn-zoom-out').onclick = ()=>{ zoom = Math.max(0.4, zoom-0.15); stackEl.style.transform = `scale(${zoom})`; centerIfFits(); };
+document.getElementById('btn-zoom-in').onclick = ()=>{ if(zoomLocked){ zoomLockedNotice(); return; } zoom = Math.min(10, zoom + (zoom<3?0.15:0.5)); stackEl.style.transform = `scale(${zoom})`; centerIfFits(); };
+document.getElementById('btn-zoom-out').onclick = ()=>{ if(zoomLocked){ zoomLockedNotice(); return; } zoom = Math.max(0.4, zoom-0.15); stackEl.style.transform = `scale(${zoom})`; centerIfFits(); };
 
 // 되돌리기 본체. 되돌리기 버튼과 두 손가락 '톡' 제스처가 함께 사용함(showToast=true면 결과를 토스트로 알려줌).
 // 되돌리기·다시하기가 공통으로 쓰는 적용 함수.
@@ -8530,7 +8573,7 @@ function updateThumbnailSoon(){
    - 파일 앞 2KB만 Range로 받아 확인하므로 데이터를 거의 안 씀(서버가 Range를 무시해도 동작은 함)
    - 캐시를 확실히 피하려고 일회용 ?nc= 를 붙여서 받음(브라우저가 그 주소를 캐시해도 다음엔 다른 번호라 무해)
    - GitHub Pages는 max-age=600이라 그냥 둬도 10분 뒤엔 새 파일을 받지만, 그걸 기다리지 않고 알려주기 위함 */
-const APP_BUILD = '2026-11-01a';
+const APP_BUILD = '2026-11-02a';
 const UPDATE_RECHECK_MS = 10 * 60 * 1000;
 let updateBannerShown = false, lastUpdateCheck = 0;
 function appBaseUrl(){ return location.pathname.replace(/[^/]*$/, ''); }
